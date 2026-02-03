@@ -1,0 +1,41 @@
+commit 01049c686d6ca4280f63964487374b7a889ef62c
+Author: Capstone Project <capstone@holograd.cmkl.ai>
+Date:   Tue Nov 18 15:35:38 2025 +0700
+
+    save a checkpoint before big code update
+
+commit 7d9590f59586a39fb48620000b21c150e78e7478
+Author: Capstone Project <capstone@holograd.cmkl.ai> (Pokpong)
+Date:   Mon Nov 17 21:34:58 2025 +0700
+
+    fix: model  graduationStatus struct's credits after a1ce api. Remove call redundant requests for credits, already in student/graduation/status
+
+commit 874d3d4bffcc10d9ae5bd8aac113a040bee35514
+Author: Capstone Project <capstone@holograd.cmkl.ai>
+Date:   Mon Nov 17 15:31:42 2025 +0700
+
+    Add new json file
+
+commit a2ed2c7dcee9b09bc968955447c837a330f8cd63
+Author: Capstone Project <capstone@holograd.cmkl.ai> (Pokpong)
+Date:   Fri Nov 14 12:25:25 2025 +0700
+
+    chore: correct file name
+
+commit 4caf2621e73cd8e83c620d6cddaf803277dcc130
+Author: Capstone Project <capstone@holograd.cmkl.ai> (Pokpong)
+Date:   Wed Nov 12 21:53:03 2025 +0700
+
+    fix: jwt not addd to aiceClient before sending request. Cannot parse into A1CECompetencyCard, structure not match response.
+
+commit a03cf5f5c02602cbbbd6f0813c8929bc5b2b69e4
+Author: Capstone Project <capstone@holograd.cmkl.ai> (Pokpong)
+Date:   Tue Nov 4 21:02:16 2025 +0700
+
+    chore: rename files: change , -> .
+
+commit fb32dbf341522f5592692c46d01c93d0c871f2d0
+Author: Capstone Project <capstone@holograd.cmkl.ai>
+Date:   Tue Nov 4 21:00:18 2025 +0700
+
+    initial commit
