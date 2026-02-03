@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A1CE Recommender API Tester</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background: #f5f5f5; min-height: 100vh; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; color: #333; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #333; }
+        .header h1 { font-size: 2em; margin-bottom: 5px; font-weight: 600; }
+        .header p { font-size: 1em; color: #666; }
+        .card { background: white; border: 1px solid #ddd; border-radius: 4px; padding: 20px; margin-bottom: 20px; }
+        .card h2 { color: #333; margin-bottom: 15px; font-size: 1.2em; font-weight: 600; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #333; }
+        input, select, textarea { width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; transition: border-color 0.3s; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #333; }
+        textarea { min-height: 100px; font-family: monospace; }
+        button { background: #333; color: white; border: none; padding: 10px 24px; border-radius: 3px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.2s; margin-right: 10px; margin-bottom: 10px; }
+        button:hover { background: #000; }
+        button:active { transform: translateY(0); }
+        .btn-secondary { background: #666; }
+        .btn-secondary:hover { background: #444; }
+        .btn-success { background: #28a745; } /* New Style for Overall Button */
+        .btn-success:hover { background: #218838; }
+        .response-box { background: #fafafa; border: 1px solid #ddd; border-radius: 3px; padding: 15px; margin-top: 15px; max-height: 500px; overflow-y: auto; }
+        .response-box pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; font-family: 'Courier New', monospace; font-size: 13px; color: #333; }
+        .status-badge { display: inline-block; padding: 4px 10px; border-radius: 3px; font-size: 12px; font-weight: 500; margin-bottom: 10px; border: 1px solid; }
+        .status-success { background: #f0f0f0; color: #333; border-color: #333; }
+        .status-error { background: #fff; color: #000; border-color: #000; }
+        .status-info { background: #f9f9f9; color: #666; border-color: #999; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .endpoint-btn { width: 100%; }
+        .loading { display: inline-block; width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #333; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>A1CE Course Recommender API Tester</h1>
+            <p>Test all endpoints without Postman</p>
+        </div>
+
+        <!-- Quick Test Buttons -->
+        <div class="card">
+            <h2>Quick Tests</h2>
+            <div class="grid">
+                <button class="endpoint-btn" onclick="testHealthCheck()">Health Check</button>
+                <!-- Standard Recommendation -->
+                <button class="endpoint-btn btn-secondary" onclick="getRecommendations()">Single Semester Based Recommendation</button>
+                <!-- NEW: Overall Recommendation -->
+                <button class="endpoint-btn btn-success" onclick="getOverallRecommendations()">All Semester Based Recommendation</button>
+                
+                <button class="endpoint-btn" onclick="testStudentData()">Get Student Data</button>
+                <button class="endpoint-btn btn-secondary" onclick="testCourseCatalog()">Get Available Course Catalog</button>
+            </div>
+        </div>
+
+        <!-- Configuration -->
+        <div class="card">
+            <h2>Configuration</h2>
+            <div class="form-group">
+                <label>API Base URL:</label>
+                <input type="text" id="apiBaseUrl" value="http://localhost:8080/api/v1">
+            </div>
+            <div class="form-group">
+                <label>JWT Token (if required):</label>
+                <input type="text" id="jwtToken" placeholder="Leave empty for testing without auth">
+            </div>
+        </div>
+
+        <!-- Custom Request -->
+        <div class="card">
+            <h2>Custom Request</h2>
+            <div class="form-group">
+                <label>Endpoint:</label>
+                <select id="customEndpoint">
+                    <option value="/recommendations">POST /recommendations</option>
+                    <option value="/student-data">GET /student-data</option>
+                    <option value="/course-catalog">GET /course-catalog</option>
+                    <option value="/health">GET /health</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Student ID:</label>
+                <input type="text" id="studentId" value="d4d5b891-ab6d-4e26-9121-0f0797c2f6fa">
+            </div>
+            <div class="form-group">
+                <label>Semester:</label>
+                <input type="text" id="semester" value="Fall 2025">
+            </div>
+
+            <div class="form-group">
+                <label>Previous Successful Semester (Manual Override):</label>
+                <input type="text" id="previousSemester" value="Spring 2025" placeholder="e.g. Spring 2025">
+                <small>Leave blank to use Overall Recommendation logic (via custom button above), or type a semester to focus on that.</small>
+            </div>
+
+            <div class="form-group">
+                <label>Max Credit Load:</label>
+                <input type="number" id="maxCredit" value="60">
+            </div>
+            <div class="form-group">
+                <label>Custom JSON Body (optional):</label>
+                <textarea id="customBody" placeholder='{"student_id": "S12345", "semester": "Spring 2026"}'></textarea>
+            </div>
+            <button onclick="sendCustomRequest()">Send Request</button>
+            <button class="btn-secondary" onclick="clearResponse()">Clear Response</button>
+        </div>
+
+        <!-- Response Display -->
+        <div class="card">
+            <h2>Response</h2>
+            <div id="statusBadge"></div>
+            <div class="response-box" id="responseBox">
+                <pre>No response yet. Click a test button above to start.</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function getApiUrl() { return document.getElementById('apiBaseUrl').value; }
+        function getJwtToken() { return document.getElementById('jwtToken').value; }
+
+        function displayResponse(response, status, endpoint) {
+            const responseBox = document.getElementById('responseBox');
+            const statusBadge = document.getElementById('statusBadge');
+            let badgeClass = (status >= 200 && status < 300) ? 'status-success' : 'status-error';
+            statusBadge.innerHTML = `<span class="status-badge ${badgeClass}">${status} - ${endpoint}</span>`;
+            responseBox.innerHTML = `<pre>${JSON.stringify(response, null, 2)}</pre>`;
+        }
+
+        function displayError(error, endpoint) {
+            const responseBox = document.getElementById('responseBox');
+            const statusBadge = document.getElementById('statusBadge');
+            statusBadge.innerHTML = `<span class="status-badge status-error">ERROR - ${endpoint}</span>`;
+            responseBox.innerHTML = `<pre style="color: #dc3545;">${error}</pre>`;
+        }
+
+        async function testHealthCheck() {
+            try {
+                const response = await fetch(`${getApiUrl()}/health`);
+                displayResponse(await response.json(), response.status, 'GET /health');
+            } catch (error) { displayError(error.message, 'GET /health'); }
+        }
+
+        // Standard Recommendation (Specific Semester)
+        async function getRecommendations() {
+            try {
+                const studentId = document.getElementById('studentId').value;
+                const semester = document.getElementById('semester').value;
+                const maxCredit = document.getElementById('maxCredit').value;
+                const previousSemester = document.getElementById('previousSemester').value;
+
+                const body = {
+                    student_id: studentId,
+                    semester: semester,
+                    max_credit_load: parseFloat(maxCredit),
+                    previous_semester: previousSemester 
+                };
+
+                sendRecRequest(body);
+            } catch (error) { displayError(error.message, 'POST /recommendations'); }
+        }
+
+        // NEW: Overall Recommendation
+        async function getOverallRecommendations() {
+            try {
+                const studentId = document.getElementById('studentId').value;
+                const semester = document.getElementById('semester').value;
+                const maxCredit = document.getElementById('maxCredit').value;
+
+                const body = {
+                    student_id: studentId,
+                    semester: semester,
+                    max_credit_load: parseFloat(maxCredit),
+                    previous_semester: "ALL" // Trigger the "Overall" logic in backend
+                };
+
+                sendRecRequest(body);
+            } catch (error) { displayError(error.message, 'POST /recommendations (Overall)'); }
+        }
+
+        // Helper to reduce duplication
+        async function sendRecRequest(body) {
+            const headers = { 'Content-Type': 'application/json' };
+            const token = getJwtToken();
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const response = await fetch(`${getApiUrl()}/recommendations`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(body)
+            });
+            displayResponse(await response.json(), response.status, 'POST /recommendations');
+        }
+
+        async function testStudentData() {
+            try {
+                const studentId = document.getElementById('studentId').value;
+                const headers = {};
+                const token = getJwtToken();
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const response = await fetch(`${getApiUrl()}/student-data?student_id=${studentId}`, { headers });
+                displayResponse(await response.json(), response.status, 'GET /student-data');
+            } catch (error) { displayError(error.message, 'GET /student-data'); }
+        }
+
+        async function testCourseCatalog() {
+            try {
+                const semester = document.getElementById('semester').value;
+                const headers = {};
+                const token = getJwtToken();
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const response = await fetch(`${getApiUrl()}/course-catalog?semester=${encodeURIComponent(semester)}&curriculum_version=7`, { headers });
+                displayResponse(await response.json(), response.status, 'GET /course-catalog');
+            } catch (error) { displayError(error.message, 'GET /course-catalog'); }
+        }
+
+        async function sendCustomRequest() {
+            try {
+                const endpoint = document.getElementById('customEndpoint').value;
+                const method = endpoint.includes('recommendations') ? 'POST' : 'GET';
+                const customBody = document.getElementById('customBody').value;
+                
+                let url = `${getApiUrl()}${endpoint}`;
+                const headers = { 'Content-Type': 'application/json' };
+                const token = getJwtToken();
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const options = { method, headers };
+
+                if (method === 'POST') {
+                    if (customBody) {
+                        options.body = customBody;
+                    } else {
+                        const studentId = document.getElementById('studentId').value;
+                        const semester = document.getElementById('semester').value;
+                        const maxCredit = document.getElementById('maxCredit').value;
+                        const previousSemester = document.getElementById('previousSemester').value;
+
+                        options.body = JSON.stringify({
+                            student_id: studentId,
+                            semester: semester,
+                            max_credit_load: parseFloat(maxCredit),
+                            previous_semester: previousSemester
+                        });
+                    }
+                } else {
+                    const studentId = document.getElementById('studentId').value;
+                    const semester = document.getElementById('semester').value;
+                    if (endpoint.includes('student-data')) url += `?student_id=${studentId}`;
+                    else if (endpoint.includes('course-catalog')) url += `?semester=${encodeURIComponent(semester)}&curriculum_version=7`;
+                }
+
+                const response = await fetch(url, options);
+                displayResponse(await response.json(), response.status, `${method} ${endpoint}`);
+            } catch (error) {
+                displayError(`Request failed: ${error.message}`, 'Custom Request');
+            }
+        }
+
+        function clearResponse() {
+            document.getElementById('responseBox').innerHTML = '<pre>Response cleared.</pre>';
+            document.getElementById('statusBadge').innerHTML = '';
+        }
+
+        window.addEventListener('load', () => setTimeout(testHealthCheck, 500));
+    </script>
+</body>
+</html>
