@@ -1,0 +1,10 @@
+# Security: Never commit keys or environment variables
+*.pem
+*.key
+*.pub
+.env
+
+# Go specific
+bin/
+recommender.exe
+go.sum
