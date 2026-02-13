@@ -11,16 +11,19 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	godotenv.Load() // Loads the A1CE_JWT_KEY variable
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
 		if err := EvaluateAllStudentsFromSQLite("a1ce_recommendation.db"); err != nil {
 			log.Fatalf("evaluation failed: %v", err)
 		}
 		return
 	}
-	
+
 	rules, err := loadCurriculumRules("curriculum_rules.json")
 	if err != nil {
 		log.Println("(!) CRITICAL ERROR: Could not load curriculum_rules.json")
@@ -186,7 +189,7 @@ func handleStudentData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := NewA1CEClient()
-	client.JWTToken = getAuthorzationCred(r, "token")
+	//client.JWTToken = getAuthorzationCred(r, "token")
 	profile, err := client.GetStudentProfile(studentID)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "API_ERROR", "Failed to fetch student data", err.Error())

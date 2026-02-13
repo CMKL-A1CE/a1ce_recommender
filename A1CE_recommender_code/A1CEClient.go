@@ -1,13 +1,18 @@
 package main
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type A1CEClient struct {
@@ -15,6 +20,40 @@ type A1CEClient struct {
 	HTTPClient     *http.Client
 	JWTToken       string
 	UniversityCode string
+}
+
+func (c *A1CEClient) GenerateInternalToken() (string, error) {
+	// 1. Read the file directly from the disk
+	keyData, err := os.ReadFile("private.pem")
+	if err != nil {
+		return "", fmt.Errorf("could not read private.pem: %v", err)
+	}
+
+	// 2. Decode PEM
+	block, _ := pem.Decode(keyData)
+	if block == nil {
+		return "", fmt.Errorf("failed to parse PEM block from file")
+	}
+
+	// 3. Parse RSA Key
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("RSA parse error: %v (verify your key is a valid RSA private key)", err)
+	}
+
+	// 4. Sign the token
+	claims := jwt.MapClaims{
+		"roles": []string{"User"},
+		"identities": []map[string]interface{}{
+			{"id": "f860d741-f3d0-4f95-9018-72352b0bdf9f", "role": "Admin"},
+			{"id": "5a93e729-1515-4534-8a32-41dc6f8256eb", "role": "Instructor"},
+			{"id": "467e204d-5549-416b-969f-75a833aa8ebe", "role": "Student"},
+		},
+		"exp": time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	return token.SignedString(key)
 }
 
 func NewA1CEClient() *A1CEClient {
@@ -271,22 +310,41 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 }
 
 func (c *A1CEClient) makeRequest(method, url string, result interface{}) error {
+	// 1. Move the Print to the TOP so we see it immediately
+	fmt.Println("\n--------------------------------------------------")
+	fmt.Printf("CLICK DETECTED! Calling: %s\n", url)
+
+	// 2. Generate the token right here
+	token, err := c.GenerateInternalToken()
+	if err != nil {
+		fmt.Printf("JWT ERROR: %v\n", err)
+		return err
+	}
+	c.JWTToken = token
+
+	// 3. Display the token
+	fmt.Printf("GENERATED JWT: %s\n", c.JWTToken)
+	fmt.Println("--------------------------------------------------")
+
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
 		return err
 	}
-	if c.JWTToken != "" {
-		req.AddCookie(&http.Cookie{Name: "jwt", Value: c.JWTToken})
-	}
+
+	// Attach credentials
+	req.Header.Set("Authorization", "Bearer "+c.JWTToken)
+	req.AddCookie(&http.Cookie{Name: "jwt", Value: c.JWTToken})
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
+		fmt.Printf("NETWORK ERROR: %v\n", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
+		fmt.Printf("A1CE API REJECTED (Status %d): %s\n", resp.StatusCode, string(body))
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
 	}
 
