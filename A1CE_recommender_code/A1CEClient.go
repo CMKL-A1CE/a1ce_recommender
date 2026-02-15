@@ -23,36 +23,45 @@ type A1CEClient struct {
 }
 
 func (c *A1CEClient) GenerateInternalToken() (string, error) {
-	// 1. Read the file directly from the disk
+	// 1. Read the key file we decrypted earlier
 	keyData, err := os.ReadFile("private.pem")
 	if err != nil {
 		return "", fmt.Errorf("could not read private.pem: %v", err)
 	}
 
-	// 2. Decode PEM
+	// 2. Decode the PEM block
 	block, _ := pem.Decode(keyData)
 	if block == nil {
-		return "", fmt.Errorf("failed to parse PEM block from file")
+		return "", fmt.Errorf("failed to parse PEM block")
 	}
 
-	// 3. Parse RSA Key
+	// 3. PARSE THE KEY (This defines the 'key' variable)
 	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
-		return "", fmt.Errorf("RSA parse error: %v (verify your key is a valid RSA private key)", err)
+		return "", fmt.Errorf("RSA parse error: %v", err)
 	}
 
-	// 4. Sign the token
+	// 4. DEFINE THE CLAIMS
+	// Note: We are using the Admin role here because RSA keys are
+	// usually for system-level access.
 	claims := jwt.MapClaims{
-		"roles": []string{"User"},
+		"iss":   "a1ce-recommender",
+		"roles": []string{"Admin"},
 		"identities": []map[string]interface{}{
-			{"id": "f860d741-f3d0-4f95-9018-72352b0bdf9f", "role": "Admin"},
-			{"id": "5a93e729-1515-4534-8a32-41dc6f8256eb", "role": "Instructor"},
-			{"id": "467e204d-5549-416b-969f-75a833aa8ebe", "role": "Student"},
+			{
+				// Use the Service/Admin ID provided by staff here
+				"id":   "d4d5b891-ab6d-4e26-9121-0f0797c2f6fa",
+				"role": "Admin",
+			},
 		},
-		"exp": time.Now().Add(24 * time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(1 * time.Hour).Unix(),
 	}
 
+	// 5. SIGN THE TOKEN
+	// 'key' here must match the 'key' defined in step 3
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+
 	return token.SignedString(key)
 }
 
@@ -310,43 +319,129 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 }
 
 func (c *A1CEClient) makeRequest(method, url string, result interface{}) error {
-	// 1. Move the Print to the TOP so we see it immediately
 	fmt.Println("\n--------------------------------------------------")
-	fmt.Printf("CLICK DETECTED! Calling: %s\n", url)
+	fmt.Printf("DEBUG: ATTEMPTING CONNECTION - %s\n", url)
 
-	// 2. Generate the token right here
+	// 1. Generate the JWT using the RSA private key
 	token, err := c.GenerateInternalToken()
 	if err != nil {
-		fmt.Printf("JWT ERROR: %v\n", err)
+		fmt.Printf("ERROR: Token Generation Failed: %v\n", err)
 		return err
 	}
-	c.JWTToken = token
 
-	// 3. Display the token
-	fmt.Printf("GENERATED JWT: %s\n", c.JWTToken)
+	// 2. Output the JWT for verification
+	fmt.Printf("DEBUG: GENERATED JWT: %s\n", token)
 	fmt.Println("--------------------------------------------------")
 
+	// 3. Create the HTTP Request
 	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		fmt.Printf("ERROR: Request Creation Failed: %v\n", err)
+		return err
+	}
+
+	// 4. Mimic a real browser to bypass Cloudflare bot detection
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Referer", "https://a1ce.cmkl.ac.th/")
+	req.Header.Set("Origin", "https://a1ce.cmkl.ac.th")
+
+	// 5. Attach Authentication (Both Header and Cookie)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.AddCookie(&http.Cookie{
+		Name:  "jwt",
+		Value: token,
+		Path:  "/",
+	})
+
+	fmt.Println("INFO: Sending request to A1CE server...")
+
+	// 6. Execute the Request
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		fmt.Printf("ERROR: Network Request Failed: %v\n", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	fmt.Printf("INFO: Response Received - Status: %d\n", resp.StatusCode)
+
+	// 7. Read the Response Body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("ERROR: Failed to read response body: %v\n", err)
+		return err
+	}
+
+	// 8. Detect if the server sent HTML (meaning a redirect to login)
+	responseStr := string(body)
+	if len(responseStr) > 0 && responseStr[0] == '<' {
+		fmt.Println("ERROR: Connection blocked by Security Gateway (HTML Received).")
+
+		previewLen := 500
+		if len(responseStr) < 500 {
+			previewLen = len(responseStr)
+		}
+		fmt.Printf("DEBUG: HTML Preview: %s\n", responseStr[:previewLen])
+		return fmt.Errorf("A1CE API returned HTML - check if RSA Key/ID pair is authorized")
+	}
+
+	// 9. Handle non-200 Status Codes
+	if resp.StatusCode != 200 {
+		fmt.Printf("ERROR: API rejected request (Status %d): %s\n", resp.StatusCode, responseStr)
+		return fmt.Errorf("api error %d", resp.StatusCode)
+	}
+
+	// 10. Successfully Decode the JSON data
+	fmt.Println("INFO: Connection Successful. Data received.")
+	err = json.Unmarshal(body, result)
+	if err != nil {
+		fmt.Printf("ERROR: JSON Decode Failed: %v\n", err)
+		return err
+	}
+
+	return nil
+}
+
+func (c *A1CEClient) Login() error {
+	loginURL := "https://a1ce.cmkl.ac.th/api/auth/login"
+
+	// Create form data instead of JSON
+	data := url.Values{}
+	data.Set("email", os.Getenv("CMKL_EMAIL"))
+	data.Set("password", os.Getenv("CMKL_PASSWORD"))
+
+	req, err := http.NewRequest("POST", loginURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return err
 	}
 
-	// Attach credentials
-	req.Header.Set("Authorization", "Bearer "+c.JWTToken)
-	req.AddCookie(&http.Cookie{Name: "jwt", Value: c.JWTToken})
+	// Change Content-Type to form-urlencoded
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		fmt.Printf("NETWORK ERROR: %v\n", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != 200 {
-		fmt.Printf("A1CE API REJECTED (Status %d): %s\n", resp.StatusCode, string(body))
-		return fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+		fmt.Printf("ERROR: Login failed with status %d. Response: %s\n", resp.StatusCode, string(body))
+		return fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	return json.Unmarshal(body, result)
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return fmt.Errorf("failed to decode login response: %v", err)
+	}
+
+	c.JWTToken = result.Token
+	fmt.Println("INFO: Login successful. Session token acquired.")
+	return nil
 }
