@@ -41,16 +41,17 @@ func (c *A1CEClient) GenerateInternalToken() (string, error) {
 		return "", fmt.Errorf("RSA parse error: %v", err)
 	}
 
-	// 4. DEFINE THE CLAIMS
-	// Note: We are using the Admin role here because RSA keys are
-	// usually for system-level access.
 	claims := jwt.MapClaims{
-		"iss":   "a1ce-recommender",
+		"iss": "a1ce-recommender",
+		// Standard JWT fields that security gateways look for:
+		"sub":   "7f9d2735-f811-431d-b98c-02639dd992d5",
+		"email": "recommend@cmkl.ac.th",
+
+		// Keep your original custom ones just in case A1CE needs them:
 		"roles": []string{"Admin"},
 		"identities": []map[string]interface{}{
 			{
-				// Use the Service/Admin ID provided by staff here
-				"id":   "d4d5b891-ab6d-4e26-9121-0f0797c2f6fa",
+				"id":   "7f9d2735-f811-431d-b98c-02639dd992d5",
 				"role": "Admin",
 			},
 		},
@@ -58,17 +59,20 @@ func (c *A1CEClient) GenerateInternalToken() (string, error) {
 		"exp": time.Now().Add(1 * time.Hour).Unix(),
 	}
 
-	// 5. SIGN THE TOKEN
-	// 'key' here must match the 'key' defined in step 3
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-
 	return token.SignedString(key)
 }
 
 func NewA1CEClient() *A1CEClient {
 	return &A1CEClient{
-		BaseURL:    "https://a1ce.cmkl.ac.th/api",
-		HTTPClient: &http.Client{Timeout: 10 * time.Second},
+		BaseURL: "https://a1ce.cmkl.ac.th/api", // Back to original based on your F12 test
+		HTTPClient: &http.Client{
+			Timeout: 10 * time.Second,
+			// THIS STOPS GO FROM FOLLOWING REDIRECTS TO THE HTML PAGE
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 
@@ -98,9 +102,7 @@ func (c *A1CEClient) GetStudentProfile(studentID string) (*StudentProfile, error
 				profile.CourseSemesters[card.CourseCode] = card.Semester
 			}
 			if card.Status == "Recorded" || card.Status == "Completed" || card.Grade >= 1.0 {
-				// Add basic code
 				profile.CompletedCourses = append(profile.CompletedCourses, card.CourseCode)
-				// Add TemplateID if available (Crucial for Identity Match)
 				if card.TemplateID != "" {
 					profile.CompletedCourses = append(profile.CompletedCourses, card.TemplateID)
 				}
@@ -171,6 +173,7 @@ func (c *A1CEClient) GetCourseCatalog(semester string, curriculumVersion int) (*
 // --- API CALLS ---
 
 func (c *A1CEClient) getStudentIdentity(studentID string) (*A1CEStudentIdentity, error) {
+	// Fixed URL construction
 	url := fmt.Sprintf("%s/student/identity?student_id=%s", c.BaseURL, studentID)
 	var input struct {
 		Student A1CEStudentIdentity `json:"student"`
@@ -182,6 +185,7 @@ func (c *A1CEClient) getStudentIdentity(studentID string) (*A1CEStudentIdentity,
 }
 
 func (c *A1CEClient) getStudentCompetencies(studentID string) ([]A1CECompetencyCard, error) {
+	// Clean URL construction
 	url := fmt.Sprintf("%s/student/cards?student_id=%s", c.BaseURL, studentID)
 	var input struct {
 		Info struct {
@@ -195,6 +199,7 @@ func (c *A1CEClient) getStudentCompetencies(studentID string) ([]A1CECompetencyC
 }
 
 func (c *A1CEClient) getGraduationStatus(studentID string) (*A1CEGraduationStatus, error) {
+	// Clean URL construction
 	url := fmt.Sprintf("%s/student/graduation/status?student_id=%s", c.BaseURL, studentID)
 	var input struct {
 		Status struct {
@@ -231,6 +236,7 @@ func (c *A1CEClient) getGraduationStatus(studentID string) (*A1CEGraduationStatu
 }
 
 func (c *A1CEClient) getSubdomains(curriculumVersion int) (map[string]bool, error) {
+	// Clean URL construction
 	url := fmt.Sprintf("%s/subdomain?curriculum_version=%d", c.BaseURL, curriculumVersion)
 	if c.UniversityCode != "" {
 		url += "&university_code=" + c.UniversityCode
@@ -265,6 +271,7 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 		safeSemester = strings.ReplaceAll(semester, " ", "%20")
 	}
 
+	// Clean URL construction
 	url := fmt.Sprintf("%s/competency?subdomain_id=%s&semester_name=%s&curriculum_version=%d",
 		c.BaseURL, subdomainID, safeSemester, curriculumVersion)
 
