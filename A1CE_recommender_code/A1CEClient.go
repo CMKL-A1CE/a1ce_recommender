@@ -24,9 +24,9 @@ type A1CEClient struct {
 
 func (c *A1CEClient) GenerateInternalToken() (string, error) {
 	// 1. Read the key file we decrypted earlier
-	keyData, err := os.ReadFile("private.pem")
+	keyData, err := os.ReadFile("private_key.pem")
 	if err != nil {
-		return "", fmt.Errorf("could not read private.pem: %v", err)
+		return "", fmt.Errorf("could not read private_key.pem: %v", err)
 	}
 
 	// 2. Decode the PEM block
