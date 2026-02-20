@@ -1,9 +1,7 @@
 package main
 
 import (
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,41 +21,36 @@ type A1CEClient struct {
 }
 
 func (c *A1CEClient) GenerateInternalToken() (string, error) {
-	// 1. Read the key file we decrypted earlier
-	keyData, err := os.ReadFile("private_key.pem")
-	if err != nil {
-		return "", fmt.Errorf("could not read private_key.pem: %v", err)
+	privateKeyStr := os.Getenv("A1CE_JWT_KEY")
+	if privateKeyStr == "" {
+		return "", fmt.Errorf("A1CE_JWT_KEY is missing from the .env file")
 	}
 
-	// 2. Decode the PEM block
-	block, _ := pem.Decode(keyData)
-	if block == nil {
-		return "", fmt.Errorf("failed to parse PEM block")
-	}
+	privateKeyStr = strings.ReplaceAll(privateKeyStr, "\\n", "\n")
+	privateKeyStr = strings.ReplaceAll(privateKeyStr, "\"", "")
 
-	// 3. PARSE THE KEY (This defines the 'key' variable)
-	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	key, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(privateKeyStr))
 	if err != nil {
-		return "", fmt.Errorf("RSA parse error: %v", err)
+		return "", fmt.Errorf("failed to parse RSA private key: %v", err)
 	}
 
 	claims := jwt.MapClaims{
-		"iss": "a1ce-recommender",
-		// Standard JWT fields that security gateways look for:
-		"sub":   "7f9d2735-f811-431d-b98c-02639dd992d5",
-		"email": "recommend@cmkl.ac.th",
-
-		// Keep your original custom ones just in case A1CE needs them:
-		"roles": []string{"Admin"},
+		"email": os.Getenv("M2M_EMAIL"),
+		"roles": []string{"Admin", "User"},
 		"identities": []map[string]interface{}{
 			{
-				"id":   "7f9d2735-f811-431d-b98c-02639dd992d5",
+				"id":   os.Getenv("M2M_ADMIN_ID"),
 				"role": "Admin",
 			},
 		},
-		"iat": time.Now().Unix(),
 		"exp": time.Now().Add(1 * time.Hour).Unix(),
 	}
+
+	// ---> ADD THESE LINES TO PRINT THE CLAIMS <---
+	claimsJSON, _ := json.MarshalIndent(claims, "", "  ")
+	fmt.Println("\n--- DEBUG: EXACT JWT CLAIMS BEING SENT ---")
+	fmt.Println(string(claimsJSON))
+	fmt.Println("------------------------------------------")
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	return token.SignedString(key)
@@ -236,11 +229,10 @@ func (c *A1CEClient) getGraduationStatus(studentID string) (*A1CEGraduationStatu
 }
 
 func (c *A1CEClient) getSubdomains(curriculumVersion int) (map[string]bool, error) {
-	// Clean URL construction
+	// Match the exact URL from the browser
 	url := fmt.Sprintf("%s/subdomain?curriculum_version=%d", c.BaseURL, curriculumVersion)
-	if c.UniversityCode != "" {
-		url += "&university_code=" + c.UniversityCode
-	}
+
+	// ---> DELETED THE if c.UniversityCode != "" BLOCK <---
 
 	var response struct {
 		Pillars []struct {
@@ -271,13 +263,9 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 		safeSemester = strings.ReplaceAll(semester, " ", "%20")
 	}
 
-	// Clean URL construction
+	// Match the exact URL format
 	url := fmt.Sprintf("%s/competency?subdomain_id=%s&semester_name=%s&curriculum_version=%d",
 		c.BaseURL, subdomainID, safeSemester, curriculumVersion)
-
-	if c.UniversityCode != "" {
-		url += "&university_code=" + c.UniversityCode
-	}
 
 	type APICourse struct {
 		ID          string  `json:"id"`
@@ -329,7 +317,7 @@ func (c *A1CEClient) makeRequest(method, url string, result interface{}) error {
 	fmt.Println("\n--------------------------------------------------")
 	fmt.Printf("DEBUG: ATTEMPTING CONNECTION - %s\n", url)
 
-	// 1. Generate the JWT using the RSA private key
+	// 1. Generate the JWT
 	token, err := c.GenerateInternalToken()
 	if err != nil {
 		fmt.Printf("ERROR: Token Generation Failed: %v\n", err)
@@ -347,20 +335,26 @@ func (c *A1CEClient) makeRequest(method, url string, result interface{}) error {
 		return err
 	}
 
-	// 4. Mimic a real browser to bypass Cloudflare bot detection
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Referer", "https://a1ce.cmkl.ac.th/")
-	req.Header.Set("Origin", "https://a1ce.cmkl.ac.th")
+	// 4. Act like a Backend Server, NOT a Web Browser!
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "CMKL-Recommender-Service/1.0")
 
-	// 5. Attach Authentication (Both Header and Cookie)
+	// 5. Attach Authentication (Both Header and Cookie to be safe)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.AddCookie(&http.Cookie{
 		Name:  "jwt",
 		Value: token,
 		Path:  "/",
 	})
+
+	// 5.5 THE CLOUDFLARE BYPASS: Inject the VIP Headers from .env
+	cfHeader := os.Getenv("CF_BYPASS_HEADER")
+	cfValue := os.Getenv("CF_BYPASS_VALUE")
+	if cfHeader != "" && cfValue != "" {
+		req.Header.Set(cfHeader, cfValue)
+		fmt.Printf("DEBUG: Injected Cloudflare VIP Bypass Header: %s\n", cfHeader)
+	}
 
 	fmt.Println("INFO: Sending request to A1CE server...")
 
@@ -381,7 +375,7 @@ func (c *A1CEClient) makeRequest(method, url string, result interface{}) error {
 		return err
 	}
 
-	// 8. Detect if the server sent HTML (meaning a redirect to login)
+	// 8. Detect if the server sent HTML (meaning a redirect to login or Cloudflare block)
 	responseStr := string(body)
 	if len(responseStr) > 0 && responseStr[0] == '<' {
 		fmt.Println("ERROR: Connection blocked by Security Gateway (HTML Received).")
