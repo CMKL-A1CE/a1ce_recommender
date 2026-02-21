@@ -35,15 +35,18 @@ func (c *A1CEClient) GenerateInternalToken() (string, error) {
 	}
 
 	claims := jwt.MapClaims{
-		"email": os.Getenv("M2M_EMAIL"),
-		"roles": []string{"Admin", "User"},
+		"email":  os.Getenv("M2M_EMAIL"), // Make sure your .env has recommend@cmkl.ac.th
+		"name":   "Machine Integrator",
+		"locale": "",
+		"roles":  []string{"Admin", "User"},
 		"identities": []map[string]interface{}{
 			{
 				"id":   os.Getenv("M2M_ADMIN_ID"),
 				"role": "Admin",
 			},
 		},
-		"exp": time.Now().Add(1 * time.Hour).Unix(),
+		"exp": time.Now().Add(24 * time.Hour).Unix(),
+		"jti": fmt.Sprintf("%d", time.Now().UnixNano()), // Generates a unique ID like his uuid.uuid4()
 	}
 
 	// ---> ADD THESE LINES TO PRINT THE CLAIMS <---

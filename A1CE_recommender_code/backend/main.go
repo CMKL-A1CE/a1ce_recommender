@@ -11,29 +11,38 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	// 1. Load Required Rules
-	reqRules, err := loadCurriculumRules("curriculum_rules.json")
+	godotenv.Load() // Loads the A1CE_JWT_KEY variable
+	if len(os.Args) > 1 && os.Args[1] == "eval" {
+		if err := EvaluateAllStudentsFromSQLite("a1ce_recommendation.db"); err != nil {
+			log.Fatalf("evaluation failed: %v", err)
+		}
+		return
+	}
+
+	rules, err := loadCurriculumRules("curriculum_rules.json")
 	if err != nil {
-		log.Println("(!) WARNING: Could not load curriculum_rules.json")
+		log.Println("(!) CRITICAL ERROR: Could not load curriculum_rules.json")
 	} else {
 		count := 0
-		for _, req := range reqRules {
+		for _, req := range rules {
 			if req {
 				count++
 			}
 		}
-		log.Printf("(✓) Loaded %d REQUIRED rules.", count)
+		log.Printf("(✓) SUCCESS: Loaded %d REQUIRED rules from curriculum_rules.json\n", count)
 	}
 
-	// 2. Load Identity Map
+	// Load Identity Map on startup
 	idMap, err := loadIdentityMap("course_identities.json")
 	if err != nil {
 		log.Println("(!) WARNING: Could not load course_identities.json")
 	} else {
-		log.Printf("(✓) Loaded %d IDENTITY mappings.", len(idMap))
+		log.Printf("(✓) SUCCESS: Loaded %d IDENTITY mappings.", len(idMap))
 	}
 
 	mux := http.NewServeMux()
@@ -62,330 +71,11 @@ func main() {
 	}
 }
 
-// --- HANDLERS ---
-
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
-}
-
-func handleStudentData(w http.ResponseWriter, r *http.Request) {
-	studentID := r.URL.Query().Get("student_id")
-	if studentID == "" {
-		sendError(w, http.StatusBadRequest, "MISSING_PARAM", "student_id is required", "")
-		return
-	}
-	client := NewA1CEClient()
-	client.JWTToken = getAuthorzationCred(r, "token")
-	profile, err := client.GetStudentProfile(studentID)
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "API_ERROR", "Failed to fetch student data", err.Error())
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(profile)
-}
-
-func handleCourseCatalog(w http.ResponseWriter, r *http.Request) {
-	semester := r.URL.Query().Get("semester")
-	curriculumVersionStr := r.URL.Query().Get("curriculum_version")
-	curriculumVersion, err := strconv.Atoi(curriculumVersionStr)
-	if semester == "" || err != nil {
-		sendError(w, http.StatusBadRequest, "MISSING_REQUIRED_FIELD", "semester/version required", "")
-		return
-	}
-	client := NewA1CEClient()
-	client.JWTToken = getAuthorzationCred(r, "token")
-	client.UniversityCode = "CMKL"
-
-	catalog, err := client.GetCourseCatalog(semester, curriculumVersion)
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch catalog", err.Error())
-		return
-	}
-
-	// INJECT IDENTITY CODES & REQUIRED STATUS
-	idMap, _ := loadIdentityMap("course_identities.json")
-	rules, _ := loadCurriculumRules("curriculum_rules.json")
-
-	normRules := make(map[string]bool)
-	if rules != nil {
-		for code, isReq := range rules {
-			if isReq {
-				normRules[normalizeCode(code)] = true
-			}
-		}
-	}
-
-	for i := range catalog.Courses {
-		c := &catalog.Courses[i]
-		normCode := normalizeCode(c.CourseCode)
-
-		// 1. Inject Identity ID from Map
-		if val, ok := idMap[normCode]; ok {
-			c.TemplateID = val
-		}
-
-		// 2. Inject Required Status
-		if normRules[normCode] || normRules[normalizeCode(c.CourseID)] {
-			c.IsRequired = true
-			c.IsCore = true
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(catalog)
-}
-
-func handleRecommendations(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		sendError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only POST requests allowed", "")
-		return
-	}
-
-	var req RecommendationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sendError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to parse request body", err.Error())
-		return
-	}
-
-	client := NewA1CEClient()
-	client.JWTToken = getAuthorzationCred(r, "token")
-
-	profile, err := client.GetStudentProfile(req.StudentID)
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch profile", err.Error())
-		return
-	}
-
-	// Load Maps
-	idMap, _ := loadIdentityMap("course_identities.json")
-	rules, _ := loadCurriculumRules("curriculum_rules.json")
-
-	// 1. BUILD COMPLETED MAP (Full History)
-	completedMap := fetchAllCompletedIdentityCodes(client, req.StudentID, profile, idMap)
-
-	// 2. INTERESTS
-	var successfulCourses []string
-	if req.PreviousSemester == "ALL" {
-		for courseCode, grade := range profile.Competencies {
-			if grade > 1.0 {
-				successfulCourses = append(successfulCourses, courseCode)
-			}
-		}
-	} else if req.PreviousSemester != "" {
-		semesterCards, err := client.GetSemesterCompetencies(req.StudentID, req.PreviousSemester)
-		if err == nil {
-			for _, card := range semesterCards {
-				if card.Grade > 1.0 {
-					successfulCourses = append(successfulCourses, card.CourseCode)
-				}
-			}
-		}
-	}
-
-	// 3. CATALOG
-	catalog, err := client.GetCourseCatalog(req.Semester, profile.CurriculumVersion)
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch catalog", err.Error())
-		return
-	}
-
-	// 4. INJECT IDENTITY IDS INTO CATALOG
-	for i := range catalog.Courses {
-		c := &catalog.Courses[i]
-		if val, ok := idMap[normalizeCode(c.CourseCode)]; ok {
-			c.TemplateID = val
-		}
-	}
-
-	profile.InterestWeights = make(map[string]float64)
-	if len(successfulCourses) > 0 {
-		for _, successCode := range successfulCourses {
-			parts := strings.Split(successCode, "-")
-			if len(parts) > 0 {
-				prefix := parts[0]
-				for _, course := range catalog.Courses {
-					if strings.HasPrefix(course.CourseCode, prefix) {
-						profile.InterestWeights[course.SubdomainID] += 5.0
-					}
-				}
-			}
-		}
-	}
-	totalWeight := 0.0
-	for _, w := range profile.InterestWeights {
-		totalWeight += w
-	}
-	if totalWeight > 0 {
-		for k := range profile.InterestWeights {
-			profile.InterestWeights[k] /= totalWeight
-		}
-	}
-
-	// --- UPDATE REQUIREMENTS BASED ON RULES ---
-	// We merge the API's missing list with our Manual Rules missing list
-	requirements := &CurriculumRequirements{
-		CurriculumVersion:    profile.CurriculumVersion,
-		RequiredCompetencies: profile.RequiredCompetencies,
-		TotalCreditsRequired: float64(profile.TotalCredits.Required),
-	}
-
-	// Helper set to avoid duplicates
-	missingSet := make(map[string]bool)
-	for _, req := range requirements.RequiredCompetencies {
-		missingSet[normalizeCode(req)] = true
-	}
-
-	// Check manual rules
-	if rules != nil {
-		for code, isRequired := range rules {
-			if !isRequired {
-				continue
-			}
-
-			normCode := normalizeCode(code)
-			isDone := false
-
-			// A. Check if code is in completed map
-			if completedMap[normCode] {
-				isDone = true
-			}
-
-			// B. Check if Identity ID (from map) is in completed map
-			if !isDone {
-				if id, ok := idMap[normCode]; ok {
-					if completedMap[normalizeCode(id)] {
-						isDone = true
-					}
-				}
-			}
-
-			// If Required AND Not Done -> Add to requirements list
-			if !isDone {
-				if !missingSet[normCode] {
-					requirements.RequiredCompetencies = append(requirements.RequiredCompetencies, code)
-					missingSet[normCode] = true
-				}
-			}
-		}
-	}
-
-	// --- SCORE & RECOMMEND ---
-	var scoredCourses []RecommendedCourse
-	for _, course := range catalog.Courses {
-		// Filter Completed
-		isCompleted := false
-		if course.TemplateID != "" && completedMap[normalizeCode(course.TemplateID)] {
-			isCompleted = true
-		}
-		if course.CourseName != "" {
-			cName := "NAME:" + smartCleanName(course.CourseName)
-			if completedMap[cName] {
-				isCompleted = true
-			}
-		}
-		if completedMap[normalizeCode(course.CourseCode)] {
-			isCompleted = true
-		}
-		if completedMap[normalizeCode(course.CourseID)] {
-			isCompleted = true
-		}
-
-		if isCompleted {
-			continue
-		}
-
-		if !CheckPrerequisites(course, profile) {
-			continue
-		}
-		if strings.HasPrefix(course.CourseCode, "SOF-") {
-			continue
-		}
-		if course.SemesterOffered != "" && !strings.EqualFold(course.SemesterOffered, req.Semester) {
-			continue
-		}
-
-		compScore := CalculateCompetencyMatchScore(course, profile)
-		interestScore := CalculateInterestScore(course, profile)
-		progScore := CalculateProgramProgressScore(course, profile, requirements)
-		fitScore := 0.2*compScore + 0.6*interestScore + 0.2*progScore
-
-		displayCourse := CourseOutput{
-			CourseID:             course.CourseID,
-			TemplateID:           course.TemplateID,
-			CourseCode:           course.CourseCode,
-			CourseName:           course.CourseName,
-			Description:          course.Description,
-			CreditHours:          course.CreditHours,
-			SubdomainID:          course.SubdomainID,
-			TeachesCompetencies:  course.TeachesCompetencies,
-			SemesterOffered:      course.SemesterOffered,
-			RequiredCompetencies: make(map[string]string),
-		}
-
-		// Use the UPDATED missingSet to determine display status
-		if missingSet[normalizeCode(course.CourseCode)] ||
-			(course.TemplateID != "" && missingSet[normalizeCode(course.TemplateID)]) {
-			displayCourse.RequiredCompetencies["Required"] = "-"
-		} else {
-			displayCourse.RequiredCompetencies["Not Required"] = "-"
-		}
-
-		scoredCourses = append(scoredCourses, RecommendedCourse{
-			Course:                 course,
-			DisplayCourse:          displayCourse,
-			FitScore:               fitScore,
-			CompetencyMatchScore:   compScore,
-			InterestAlignmentScore: interestScore,
-			ProgramProgressScore:   progScore,
-			Reason:                 fmt.Sprintf("Interest Score: %.2f", interestScore),
-		})
-	}
-
-	for i := 0; i < len(scoredCourses); i++ {
-		for j := i + 1; j < len(scoredCourses); j++ {
-			if scoredCourses[i].FitScore < scoredCourses[j].FitScore {
-				scoredCourses[i], scoredCourses[j] = scoredCourses[j], scoredCourses[i]
-			}
-		}
-	}
-	recommendedSet := OptimizeCourseSet(scoredCourses, profile, requirements, req.MaxCreditLoad)
-
-	totalCredits := 0.0
-	for _, r := range recommendedSet {
-		totalCredits += r.Course.CreditHours
-	}
-
-	warningMsg := ""
-	if req.MaxCreditLoad > 60 {
-		warningMsg = "The student is currently doing a credit overload, make sure to already contact CMKL staff"
-	}
-
-	response := RecommendationSet{
-		StudentID:      req.StudentID,
-		Semester:       req.Semester,
-		RecommendedSet: recommendedSet,
-		TotalCredits:   totalCredits,
-		Metrics:        EvaluationMetrics{GoodnessScore: 0.85},
-		Metadata: RecommendationMetadata{
-			GenerationTimestamp: time.Now(),
-			AlgorithmVersion:    "1.32-Rules-Enforced",
-		},
-		Status:  "success",
-		Warning: warningMsg,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-// --- HELPERS ---
-
+// --- HELPER: Fetch Full History ---
 func fetchAllCompletedIdentityCodes(client *A1CEClient, studentID string, profile *StudentProfile, idMap map[string]string) map[string]bool {
 	completed := make(map[string]bool)
 
-	// Main profile codes
+	// 1. Codes from main profile
 	for _, c := range profile.CompletedCourses {
 		normC := normalizeCode(c)
 		completed[normC] = true
@@ -400,6 +90,8 @@ func fetchAllCompletedIdentityCodes(client *A1CEClient, studentID string, profil
 			uniqueSemesters[sem] = true
 		}
 	}
+
+	log.Printf("Scanning %d semesters for identity codes...", len(uniqueSemesters))
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -430,6 +122,8 @@ func fetchAllCompletedIdentityCodes(client *A1CEClient, studentID string, profil
 		}(sem)
 	}
 	wg.Wait()
+
+	log.Printf("History scan complete. Total unique markers: %d", len(completed))
 	return completed
 }
 
@@ -481,6 +175,288 @@ func smartCleanName(s string) string {
 	return reg.ReplaceAllString(s, "")
 }
 
+// --- HANDLERS ---
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+func handleStudentData(w http.ResponseWriter, r *http.Request) {
+	studentID := r.URL.Query().Get("student_id")
+	if studentID == "" {
+		sendError(w, http.StatusBadRequest, "MISSING_PARAM", "student_id is required", "")
+		return
+	}
+	client := NewA1CEClient()
+	//client.JWTToken = getAuthorzationCred(r, "token")
+	profile, err := client.GetStudentProfile(studentID)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "API_ERROR", "Failed to fetch student data", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(profile)
+}
+
+func handleCourseCatalog(w http.ResponseWriter, r *http.Request) {
+	semester := r.URL.Query().Get("semester")
+	curriculumVersionStr := r.URL.Query().Get("curriculum_version")
+	curriculumVersion, err := strconv.Atoi(curriculumVersionStr)
+	if semester == "" || err != nil {
+		sendError(w, http.StatusBadRequest, "MISSING_REQUIRED_FIELD", "semester/version required", "")
+		return
+	}
+	client := NewA1CEClient()
+	client.JWTToken = getAuthorzationCred(r, "token")
+	client.UniversityCode = "CMKL"
+	catalog, err := client.GetCourseCatalog(semester, curriculumVersion)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch catalog", err.Error())
+		return
+	}
+
+	idMap, _ := loadIdentityMap("course_identities.json")
+	rules, _ := loadCurriculumRules("curriculum_rules.json")
+	normRules := make(map[string]bool)
+	if rules != nil {
+		for code, isReq := range rules {
+			if isReq {
+				normRules[normalizeCode(code)] = true
+			}
+		}
+	}
+
+	for i := range catalog.Courses {
+		c := &catalog.Courses[i]
+		normCode := normalizeCode(c.CourseCode)
+
+		// Inject Identity ID
+		if val, ok := idMap[normCode]; ok {
+			c.TemplateID = val
+		}
+		// Inject Required Status
+		if normRules[normCode] || normRules[normalizeCode(c.CourseID)] {
+			c.IsRequired = true
+			c.IsCore = true
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(catalog)
+}
+
+func handleRecommendations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only POST requests allowed", "")
+		return
+	}
+
+	var req RecommendationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to parse request body", err.Error())
+		return
+	}
+
+	client := NewA1CEClient()
+	client.JWTToken = getAuthorzationCred(r, "token")
+
+	profile, err := client.GetStudentProfile(req.StudentID)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch profile", err.Error())
+		return
+	}
+
+	idMap, _ := loadIdentityMap("course_identities.json")
+	completedMap := fetchAllCompletedIdentityCodes(client, req.StudentID, profile, idMap)
+
+	// Interests
+	var successfulCourses []string
+	if req.PreviousSemester == "ALL" {
+		for courseCode, grade := range profile.Competencies {
+			if grade > 1.0 {
+				successfulCourses = append(successfulCourses, courseCode)
+			}
+		}
+	} else if req.PreviousSemester != "" {
+		semesterCards, err := client.GetSemesterCompetencies(req.StudentID, req.PreviousSemester)
+		if err == nil {
+			for _, card := range semesterCards {
+				if card.Grade > 1.0 {
+					successfulCourses = append(successfulCourses, card.CourseCode)
+				}
+			}
+		}
+	}
+
+	// Catalog
+	catalog, err := client.GetCourseCatalog(req.Semester, profile.CurriculumVersion)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch catalog", err.Error())
+		return
+	}
+
+	// Inject IDs into Catalog
+	for i := range catalog.Courses {
+		c := &catalog.Courses[i]
+		if val, ok := idMap[normalizeCode(c.CourseCode)]; ok {
+			c.TemplateID = val
+		}
+	}
+
+	profile.InterestWeights = make(map[string]float64)
+	if len(successfulCourses) > 0 {
+		for _, successCode := range successfulCourses {
+			parts := strings.Split(successCode, "-")
+			if len(parts) > 0 {
+				prefix := parts[0]
+				for _, course := range catalog.Courses {
+					if strings.HasPrefix(course.CourseCode, prefix) {
+						profile.InterestWeights[course.SubdomainID] += 5.0
+					}
+				}
+			}
+		}
+	}
+	totalWeight := 0.0
+	for _, w := range profile.InterestWeights {
+		totalWeight += w
+	}
+	if totalWeight > 0 {
+		for k := range profile.InterestWeights {
+			profile.InterestWeights[k] /= totalWeight
+		}
+	}
+
+	requirements := &CurriculumRequirements{
+		CurriculumVersion:    profile.CurriculumVersion,
+		RequiredCompetencies: profile.RequiredCompetencies,
+		TotalCreditsRequired: float64(profile.TotalCredits.Required),
+	}
+
+	isCurriculumReq := make(map[string]bool)
+	rules, _ := loadCurriculumRules("curriculum_rules.json")
+	if rules != nil {
+		for code, req := range rules {
+			if req {
+				isCurriculumReq[normalizeCode(code)] = true
+			}
+		}
+	}
+
+	var scoredCourses []RecommendedCourse
+	for _, course := range catalog.Courses {
+		// --- FILTERING ---
+		isCompleted := false
+		if course.TemplateID != "" && completedMap[normalizeCode(course.TemplateID)] {
+			isCompleted = true
+		}
+		if course.CourseName != "" {
+			cName := "NAME:" + smartCleanName(course.CourseName)
+			if completedMap[cName] {
+				isCompleted = true
+			}
+		}
+		if completedMap[normalizeCode(course.CourseCode)] {
+			isCompleted = true
+		}
+		if completedMap[normalizeCode(course.CourseID)] {
+			isCompleted = true
+		}
+
+		if isCompleted {
+			continue
+		}
+
+		if !CheckPrerequisites(course, profile) {
+			continue
+		}
+		if strings.HasPrefix(course.CourseCode, "SOF-") {
+			continue
+		}
+		if course.SemesterOffered != "" && !strings.EqualFold(course.SemesterOffered, req.Semester) {
+			continue
+		}
+
+		compScore := CalculateCompetencyMatchScore(course, profile)
+		interestScore := CalculateInterestScore(course, profile)
+		progScore := CalculateProgramProgressScore(course, profile, requirements)
+		fitScore := 0.2*compScore + 0.6*interestScore + 0.2*progScore
+
+		displayCourse := CourseOutput{
+			CourseID:             course.CourseID,
+			TemplateID:           course.TemplateID,
+			CourseCode:           course.CourseCode,
+			CourseName:           course.CourseName,
+			Description:          course.Description,
+			CreditHours:          course.CreditHours,
+			SubdomainID:          course.SubdomainID,
+			TeachesCompetencies:  course.TeachesCompetencies,
+			SemesterOffered:      course.SemesterOffered,
+			RequiredCompetencies: make(map[string]string),
+		}
+
+		if isCurriculumReq[normalizeCode(course.CourseCode)] ||
+			(course.TemplateID != "" && isCurriculumReq[normalizeCode(course.TemplateID)]) {
+			displayCourse.RequiredCompetencies["Required"] = "-"
+		} else {
+			displayCourse.RequiredCompetencies["Not Required"] = "-"
+		}
+		for _, missing := range profile.RequiredCompetencies {
+			if normalizeCode(missing) == normalizeCode(course.CourseCode) {
+				displayCourse.RequiredCompetencies["Required"] = "-"
+			}
+		}
+
+		scoredCourses = append(scoredCourses, RecommendedCourse{
+			Course:                 course,
+			DisplayCourse:          displayCourse,
+			FitScore:               fitScore,
+			CompetencyMatchScore:   compScore,
+			InterestAlignmentScore: interestScore,
+			ProgramProgressScore:   progScore,
+			Reason:                 fmt.Sprintf("Interest Score: %.2f", interestScore),
+		})
+	}
+
+	for i := 0; i < len(scoredCourses); i++ {
+		for j := i + 1; j < len(scoredCourses); j++ {
+			if scoredCourses[i].FitScore < scoredCourses[j].FitScore {
+				scoredCourses[i], scoredCourses[j] = scoredCourses[j], scoredCourses[i]
+			}
+		}
+	}
+	recommendedSet := OptimizeCourseSet(scoredCourses, profile, requirements, req.MaxCreditLoad)
+
+	totalCredits := 0.0
+	for _, r := range recommendedSet {
+		totalCredits += r.Course.CreditHours
+	}
+
+	warningMsg := ""
+	if req.MaxCreditLoad > 60 {
+		warningMsg = "The student is currently doing a credit overload, make sure to already contact CMKL staff"
+	}
+
+	response := RecommendationSet{
+		StudentID:      req.StudentID,
+		Semester:       req.Semester,
+		RecommendedSet: recommendedSet,
+		TotalCredits:   totalCredits,
+		Metrics:        EvaluationMetrics{GoodnessScore: 0.85},
+		Metadata: RecommendationMetadata{
+			GenerationTimestamp: time.Now(),
+			AlgorithmVersion:    "1.31-Identity-JSON-Label",
+		},
+		Status:  "success",
+		Warning: warningMsg,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// ... (Standard Helpers: containsString, min, sendError, getAuthorzationCred, corsMiddleware, loggingMiddleware, authMiddleware) ...
 func containsString(slice []string, val string) bool {
 	for _, item := range slice {
 		if item == val {
