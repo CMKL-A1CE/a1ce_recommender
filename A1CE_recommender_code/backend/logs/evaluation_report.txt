@@ -1,14 +1,12 @@
-2026/02/21 14:31:25 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/02/21 14:31:25 (!) WARNING: Could not load course_identities.json
-2026/02/21 14:31:25 ===========================================
-2026/02/21 14:31:25 A1CE Course Recommender API Server
-2026/02/21 14:31:25 ===========================================
-2026/02/21 14:31:25 Server listening on: http://localhost:8080
-2026/02/21 14:31:34 GET /api/v1/health
-2026/02/21 14:31:34 Completed in 0s
-2026/02/21 14:31:35 GET /api/v1/student-data
-2026/02/21 14:31:37 Completed in 1.7222988s
-2026/02/21 14:31:41 GET /api/v1/course-catalog
-2026/02/21 14:31:41 Completed in 50.5465ms
-2026/02/21 14:31:44 GET /api/v1/student-data
-2026/02/21 14:31:45 Completed in 460.0288ms
+2026/02/23 14:39:17 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/02/23 14:39:17 (!) WARNING: Could not load course_identities.json
+2026/02/23 14:39:17 ===========================================
+2026/02/23 14:39:17 A1CE Course Recommender API Server
+2026/02/23 14:39:17 ===========================================
+2026/02/23 14:39:17 Server listening on: http://localhost:8080
+2026/02/23 14:39:25 GET /api/v1/health
+2026/02/23 14:39:25 Completed in 0s
+2026/02/23 14:39:26 GET /api/v1/student-data
+2026/02/23 14:39:27 Completed in 776.4779ms
+2026/02/23 14:39:32 GET /api/v1/course-catalog
+2026/02/23 14:39:36 Completed in 3.7645415s

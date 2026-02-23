@@ -14,10 +14,11 @@ import (
 )
 
 type A1CEClient struct {
-	BaseURL        string
-	HTTPClient     *http.Client
-	JWTToken       string
-	UniversityCode string
+	BaseURL          string
+	HTTPClient       *http.Client
+	JWTToken         string
+	UniversityCode   string
+	CourseIdentities map[string]string
 }
 
 func (c *A1CEClient) GenerateInternalToken() (string, error) {
@@ -35,18 +36,26 @@ func (c *A1CEClient) GenerateInternalToken() (string, error) {
 	}
 
 	claims := jwt.MapClaims{
-		"email":  os.Getenv("M2M_EMAIL"), // Make sure your .env has recommend@cmkl.ac.th
-		"name":   "Machine Integrator",
-		"locale": "",
-		"roles":  []string{"Admin", "User"},
+		"email":       os.Getenv("M2M_EMAIL"),
+		"given_name":  "CMKL",
+		"family_name": "Recommendations",
+		"locale":      "",
+		"roles":       []string{"User", "Admin", "Curriculum Designer"},
+		"user_id":     "48646235-c3f0-48a4-b28e-126fca224b96",
 		"identities": []map[string]interface{}{
 			{
-				"id":   os.Getenv("M2M_ADMIN_ID"),
+				// Badge 1: Admin (For Student Data)
+				"id":   os.Getenv("M2M_ADMIN_ID"), // "7f9d2735-f811-431d-b98c-02639dd992d5"
 				"role": "Admin",
+			},
+			{
+				// Badge 2: Curriculum Designer (For Course Catalog)
+				"id":   "8059fdb1-8122-4c06-b7a8-824621426975",
+				"role": "Curriculum Designer",
 			},
 		},
 		"exp": time.Now().Add(24 * time.Hour).Unix(),
-		"jti": fmt.Sprintf("%d", time.Now().UnixNano()), // Generates a unique ID like his uuid.uuid4()
+		"jti": fmt.Sprintf("%d", time.Now().UnixNano()),
 	}
 
 	// ---> ADD THESE LINES TO PRINT THE CLAIMS <---
@@ -60,16 +69,22 @@ func (c *A1CEClient) GenerateInternalToken() (string, error) {
 }
 
 func NewA1CEClient() *A1CEClient {
-	return &A1CEClient{
-		BaseURL: "https://a1ce.cmkl.ac.th/api", // Back to original based on your F12 test
-		HTTPClient: &http.Client{
-			Timeout: 10 * time.Second,
-			// THIS STOPS GO FROM FOLLOWING REDIRECTS TO THE HTML PAGE
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
+	client := &A1CEClient{
+		BaseURL:          "https://a1ce.cmkl.ac.th/api",
+		HTTPClient:       &http.Client{Timeout: 10 * time.Second},
+		CourseIdentities: make(map[string]string),
 	}
+
+	// Read the JSON file automatically!
+	data, err := os.ReadFile("course_identities.json")
+	if err == nil {
+		json.Unmarshal(data, &client.CourseIdentities)
+		fmt.Printf("Successfully loaded %d course identities from JSON.\n", len(client.CourseIdentities))
+	} else {
+		fmt.Println("Warning: Could not load course_identities.json:", err)
+	}
+
+	return client
 }
 
 func (c *A1CEClient) GetStudentProfile(studentID string) (*StudentProfile, error) {
@@ -232,10 +247,8 @@ func (c *A1CEClient) getGraduationStatus(studentID string) (*A1CEGraduationStatu
 }
 
 func (c *A1CEClient) getSubdomains(curriculumVersion int) (map[string]bool, error) {
-	// Match the exact URL from the browser
-	url := fmt.Sprintf("%s/subdomain?curriculum_version=%d", c.BaseURL, curriculumVersion)
-
-	// ---> DELETED THE if c.UniversityCode != "" BLOCK <---
+	// We added &university_code=CMKL to the end!
+	url := fmt.Sprintf("%s/subdomain?curriculum_version=%d&university_code=CMKL", c.BaseURL, curriculumVersion)
 
 	var response struct {
 		Pillars []struct {
@@ -266,13 +279,13 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 		safeSemester = strings.ReplaceAll(semester, " ", "%20")
 	}
 
-	// Match the exact URL format
-	url := fmt.Sprintf("%s/competency?subdomain_id=%s&semester_name=%s&curriculum_version=%d",
+	// We added &university_code=CMKL to the end here too!
+	url := fmt.Sprintf("%s/competency?subdomain_id=%s&semester_name=%s&curriculum_version=%d&university_code=CMKL",
 		c.BaseURL, subdomainID, safeSemester, curriculumVersion)
 
 	type APICourse struct {
 		ID          string  `json:"id"`
-		TemplateID  string  `json:"template_id"` // Identity Code from Catalog
+		TemplateID  string  `json:"template_id"` // <-- ADD THIS LINE
 		Code        string  `json:"competency_code"`
 		Title       string  `json:"title"`
 		Description string  `json:"description"`
@@ -281,6 +294,7 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 		IsCore      bool    `json:"is_core"`
 		IsRequired  bool    `json:"is_required"`
 	}
+
 	var response struct {
 		Competencies []APICourse `json:"competencies"`
 	}
@@ -297,9 +311,17 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 
 		isCore := ac.IsCore || ac.IsRequired
 
+		// --- THE DICTIONARY LOOKUP ---
+		// Start with whatever the API gave us (usually blank)
+		finalTemplateID := ac.TemplateID
+		// Check our JSON dictionary. If a match exists, overwrite it!
+		if mappedID, exists := c.CourseIdentities[ac.Code]; exists {
+			finalTemplateID = mappedID
+		}
+
 		courses = append(courses, Course{
 			CourseID:             finalID,
-			TemplateID:           ac.TemplateID, // Store Identity Code
+			TemplateID:           finalTemplateID, // <-- SAVES THE MATCHED ID
 			CourseCode:           ac.Code,
 			CourseName:           ac.Title,
 			Description:          ac.Description,
@@ -448,4 +470,20 @@ func (c *A1CEClient) Login() error {
 	c.JWTToken = result.Token
 	fmt.Println("INFO: Login successful. Session token acquired.")
 	return nil
+}
+
+func (c *A1CEClient) LoadCourseIdentities(filepath string) {
+	c.CourseIdentities = make(map[string]string)
+
+	// Read the JSON file
+	data, err := os.ReadFile(filepath)
+	if err != nil {
+		fmt.Println("Warning: Could not load course identities file:", err)
+		return
+	}
+
+	// Parse it into the dictionary map
+	if err := json.Unmarshal(data, &c.CourseIdentities); err != nil {
+		fmt.Println("Warning: Failed to parse course identities JSON:", err)
+	}
 }
