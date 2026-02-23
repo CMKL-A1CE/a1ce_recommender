@@ -1,12 +1,14 @@
-2026/02/23 15:00:46 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/02/23 15:00:46 (!) WARNING: Could not load course_identities.json
-2026/02/23 15:00:46 ===========================================
-2026/02/23 15:00:46 A1CE Course Recommender API Server
-2026/02/23 15:00:46 ===========================================
-2026/02/23 15:00:46 Server listening on: http://localhost:8080
-2026/02/23 15:01:00 GET /api/v1/health
-2026/02/23 15:01:00 Completed in 503.7µs
-2026/02/23 15:01:01 GET /api/v1/student-data
-2026/02/23 15:01:02 Completed in 785.0363ms
-2026/02/23 15:01:03 GET /api/v1/course-catalog
-2026/02/23 15:01:07 Completed in 3.8222415s
+2026/02/23 22:39:29 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/02/23 22:39:29 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
+2026/02/23 22:39:29 ===========================================
+2026/02/23 22:39:29 A1CE Course Recommender API Server
+2026/02/23 22:39:29 ===========================================
+2026/02/23 22:39:29 Server listening on: http://localhost:8080
+2026/02/23 22:39:41 GET /api/v1/health
+2026/02/23 22:39:41 Completed in 555.4µs
+2026/02/23 22:39:42 GET /api/v1/student-data
+2026/02/23 22:39:43 Completed in 551.2259ms
+2026/02/23 22:39:45 POST /api/v1/recommendations
+2026/02/23 22:39:45 Scanning 8 semesters for identity codes...
+2026/02/23 22:39:46 History scan complete. Total unique markers: 383
+2026/02/23 22:39:49 Completed in 4.2151683s
