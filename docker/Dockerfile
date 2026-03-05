@@ -1,6 +1,6 @@
 # Build stage
 # Use a Debian-based builder to match the Ubuntu runner (better for CGO/glibc compatibility)
-FROM golang:1.24-bookworm AS builder
+FROM golang:1.25.0-bookworm AS builder
 
 # Use build arguments to change the binary name
 ARG BINARY_NAME=recommender-backend
