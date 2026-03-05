@@ -5,6 +5,8 @@ FROM golang:1.25.0-alpine AS builder
 # Use build arguments to change the binary name
 ARG BINARY_NAME=recommender-backend
 
+RUN apk add --no-cache gcc libc-dev build-base
+
 WORKDIR /app
 
 # Copy module files from the backend directory
