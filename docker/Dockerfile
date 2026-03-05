@@ -47,7 +47,7 @@ RUN mkdir -p /app/logs /tmp && chown -R appuser:appgroup /app
 COPY --chown=appuser:appgroup --from=builder /app/${BINARY_NAME} ./${BINARY_NAME}
 COPY --chown=appuser:appgroup --from=builder /app/*.json ./
 COPY --chown=appuser:appgroup --from=builder /app/*.csv ./
-COPY --chown=appuser:appgroup --from=builder /app/*.db ./
+# COPY --chown=appuser:appgroup --from=builder /app/*.db ./
 
 # Ensure the binary is executable (just as a safeguard)
 RUN chmod +x ./${BINARY_NAME}
