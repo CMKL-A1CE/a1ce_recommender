@@ -30,7 +30,8 @@ ARG BINARY_NAME=recommender-backend
 ENV BINARY_NAME=${BINARY_NAME}
 
 # Create a non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -s /bin/bash -m appuser
 
 WORKDIR /app
 
