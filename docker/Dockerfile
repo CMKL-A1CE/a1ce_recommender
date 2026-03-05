@@ -19,6 +19,8 @@ COPY A1CE_recommender_code/backend/go.mod ./
 # Copy the source code
 COPY A1CE_recommender_code/backend/ .
 
+RUN go get a1ce-recommender-backend
+
 # Build the Go application with CGO enabled
 RUN CGO_ENABLED=1 GOOS=linux go build -o ${BINARY_NAME} .
 
