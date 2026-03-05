@@ -41,16 +41,20 @@ RUN apt-get update && apt-get install -y ca-certificates sqlite3 && rm -rf /var/
 # Copy the binary from the builder stage
 COPY --chown=appuser:appuser --from=builder /app/${BINARY_NAME} .
 
-# Copy necessary data files (JSON, CSV, DB) that the application might need to read at runtime
-COPY --chown=appuser:appuser --from=builder /app/*.json ./
-COPY --chown=appuser:appuser --from=builder /app/*.csv ./
-COPY --chown=appuser:appuser --from=builder /app/*.db ./
+# Change ownership of the app directory to the non-root user
+RUN chown -R appuser:appgroup /app
 
-# Change ownership of the /app directory so the application can write to the sqlite db directory (required for creating journal files)
-RUN chown appuser:appuser /app
+# Create directories that the application might need to write to
+RUN mkdir -p /app/logs /tmp && \
+    chown -R appuser:appgroup /app/logs
+
+# Copy necessary data files (JSON, CSV, DB) that the application might need to read at runtime
+COPY --chown=appuser:appgroup --from=builder /app/*.json ./
+COPY --chown=appuser:appgroup --from=builder /app/*.csv ./
+COPY --chown=appuser:appgroup --from=builder /app/*.db ./
 
 # Switch to the non-root user
-USER appuser
+USER 1000:1000
 
 # Expose the application port
 EXPOSE 8080
