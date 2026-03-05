@@ -1,18 +1,19 @@
 # Build stage
-FROM golang:1.25.0-alpine AS builder
+# Use a Debian-based builder to match the Ubuntu runner (better for CGO/glibc compatibility)
+FROM golang:1.24-bookworm AS builder
 
 # Use build arguments to change the binary name
-ARG BINARY_NAME=webapp
+ARG BINARY_NAME=recommender-backend
 
 WORKDIR /app
 
-# Copy module files
-COPY go.mod ./
+# Copy module files from the backend directory
+COPY A1CE_recommender_code/backend/go.mod ./
 
 # Run go mod tidy to generate go.sum if it's missing and download dependencies
 RUN go mod tidy
 
-# Copy the rest of the source code
+# Copy the source code from the backend directory
 COPY A1CE_recommender_code/backend/ .
 
 # Build the Go application
@@ -21,6 +22,10 @@ RUN CGO_ENABLED=1 GOOS=linux go build -o ${BINARY_NAME} .
 
 # Final stage
 FROM ubuntu:22.04
+
+# Re-declare ARG and set as ENV so it persists in the runner stage
+ARG BINARY_NAME=recommender-backend
+ENV BINARY_NAME=${BINARY_NAME}
 
 # Create a non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -48,4 +53,4 @@ USER appuser
 EXPOSE 8080
 
 # Run the executable
-# CMD ["./${BINARY_NAME}"]
+# ENTRYPOINT ["/bin/sh", "-c", "./${BINARY_NAME}"]
