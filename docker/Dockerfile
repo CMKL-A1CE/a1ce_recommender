@@ -10,11 +10,11 @@ WORKDIR /app
 # Copy module files from the backend directory
 COPY A1CE_recommender_code/backend/go.mod ./
 
-# Run go mod download to download dependencies
-RUN go get a1ce-recommender-backend
-
 # Copy the source code from the backend directory
 COPY A1CE_recommender_code/backend/ .
+
+# Run go get to generate go.sum
+RUN go get a1ce-recommender-backend
 
 # Build the Go application
 # CGO_ENABLED=1 is required for github.com/mattn/go-sqlite3
