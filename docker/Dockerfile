@@ -29,17 +29,18 @@ FROM ubuntu:22.04
 ARG BINARY_NAME=recommender-backend
 ENV BINARY_NAME=${BINARY_NAME}
 
-# Create a non-root user
+# Run commands to install necessary packages
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user with specific UID and GID
 RUN groupadd -g 1000 appgroup && \
     useradd -u 1000 -g appgroup -s /bin/bash -m appuser
 
+# Set the working directory
 WORKDIR /app
 
-# Install CA certificates for HTTPS requests, and sqlite3 if needed for debug
-RUN apt-get update && apt-get install -y ca-certificates sqlite3 && rm -rf /var/lib/apt/lists/*
-
-# Copy the binary from the builder stage
-COPY --chown=appuser:appgroup --from=builder /app/${BINARY_NAME} .
+# Copy the built binary from the builder stage
+COPY --from=builder /app/${BINARY_NAME} ./${BINARY_NAME}
 
 # Change ownership of the app directory to the non-root user
 RUN chown -R appuser:appgroup /app
@@ -49,9 +50,9 @@ RUN mkdir -p /app/logs /tmp && \
     chown -R appuser:appgroup /app/logs
 
 # Copy necessary data files (JSON, CSV, DB) that the application might need to read at runtime
-COPY --chown=appuser:appgroup --from=builder /app/*.json ./
-COPY --chown=appuser:appgroup --from=builder /app/*.csv ./
-COPY --chown=appuser:appgroup --from=builder /app/*.db ./
+COPY --from=builder /app/*.json ./
+COPY --from=builder /app/*.csv ./
+COPY --from=builder /app/*.db ./
 
 # Switch to the non-root user
 USER 1000:1000
