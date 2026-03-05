@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy module files from the backend directory
 COPY A1CE_recommender_code/backend/go.mod ./
 
-# Run go mod tidy to generate go.sum if it's missing and download dependencies
-RUN go mod tidy
+# Run go mod download to download dependencies
+RUN go mod download
 
 # Copy the source code from the backend directory
 COPY A1CE_recommender_code/backend/ .
