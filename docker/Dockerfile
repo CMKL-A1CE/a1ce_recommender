@@ -39,7 +39,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y ca-certificates sqlite3 && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the builder stage
-COPY --chown=appuser:appuser --from=builder /app/${BINARY_NAME} .
+COPY --chown=appuser:appgroup --from=builder /app/${BINARY_NAME} .
 
 # Change ownership of the app directory to the non-root user
 RUN chown -R appuser:appgroup /app
