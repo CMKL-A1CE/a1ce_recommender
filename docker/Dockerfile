@@ -1,56 +1,62 @@
 # Build stage
-# Use a Debian-based builder to match the Ubuntu runner (better for CGO/glibc compatibility)
-FROM golang:1.25.0-alpine AS builder
+# Use a Debian-based builder to match the Ubuntu/glibc runner.
+# Using Alpine builder with Ubuntu runner causes 'No such file or directory' errors due to musl vs glibc links.
+FROM golang:1.25-bookworm AS builder
 
-# Use build arguments to change the binary name
+# Default to "recommender-backend" but allows overrides. 
+# Explicitly set to match what the user is trying to run if needed.
 ARG BINARY_NAME=recommender-backend
+
+# Install build dependencies for CGO (sqlite3)
+RUN apt-get update && apt-get install -y gcc libc6-dev make
 
 WORKDIR /app
 
-# Copy module files from the backend directory
+# Copy module files and dependencies
 COPY A1CE_recommender_code/backend/go.mod ./
+# RUN go mod download # Optional: more efficient caching
 
-# Run go mod tidy to generate go.sum if it's missing and download dependencies
-RUN go mod tidy
-
-# Copy the source code from the backend directory
+# Copy the source code
 COPY A1CE_recommender_code/backend/ .
 
-# Build the Go application
-# CGO_ENABLED=1 is required for github.com/mattn/go-sqlite3
+RUN go get a1ce-recommender-backend
+
+# Build the Go application with CGO enabled
 RUN CGO_ENABLED=1 GOOS=linux go build -o ${BINARY_NAME} .
 
 # Final stage
 FROM ubuntu:22.04
 
-# Re-declare ARG and set as ENV so it persists in the runner stage
+# Re-declare ARG and set as ENV so it persists at runtime
 ARG BINARY_NAME=recommender-backend
 ENV BINARY_NAME=${BINARY_NAME}
 
-# Create a non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y ca-certificates sqlite3 && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root group and user
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -s /bin/bash -m appuser
 
 WORKDIR /app
 
-# Install CA certificates for HTTPS requests, and sqlite3 if needed for debug
-RUN apt-get update && apt-get install -y ca-certificates sqlite3 && rm -rf /var/lib/apt/lists/*
+# Create necessary directories first
+RUN mkdir -p /app/logs /tmp && chown -R appuser:appgroup /app
 
-# Copy the binary from the builder stage
-COPY --chown=appuser:appuser --from=builder /app/${BINARY_NAME} .
+# Copy binary and data files with correct ownership
+COPY --chown=appuser:appgroup --from=builder /app/${BINARY_NAME} ./${BINARY_NAME}
+COPY --chown=appuser:appgroup --from=builder /app/*.json ./
+COPY --chown=appuser:appgroup --from=builder /app/*.csv ./
+# COPY --chown=appuser:appgroup --from=builder /app/*.db ./
 
-# Copy necessary data files (JSON, CSV, DB) that the application might need to read at runtime
-COPY --chown=appuser:appuser --from=builder /app/*.json ./
-COPY --chown=appuser:appuser --from=builder /app/*.csv ./
-COPY --chown=appuser:appuser --from=builder /app/*.db ./
-
-# Change ownership of the /app directory so the application can write to the sqlite db directory (required for creating journal files)
-RUN chown appuser:appuser /app
+# Ensure the binary is executable (just as a safeguard)
+RUN chmod +x ./${BINARY_NAME}
 
 # Switch to the non-root user
-USER appuser
+USER 1000:1000
 
 # Expose the application port
 EXPOSE 8080
 
 # Run the executable
-# ENTRYPOINT ["/bin/sh", "-c", "./${BINARY_NAME}"]
+ENTRYPOINT ["/bin/sh", "-c", "./${BINARY_NAME}"]
