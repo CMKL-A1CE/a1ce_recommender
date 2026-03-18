@@ -426,31 +426,29 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	recommendedSet := OptimizeCourseSet(scoredCourses, profile, requirements, req.MaxCreditLoad)
-
-	totalCredits := 0.0
-	for _, r := range recommendedSet {
-		totalCredits += r.Course.CreditHours
-	}
+	roadmaps := OptimizeCourseSets(
+    scoredCourses, 
+    profile,         // Pass the student profile
+    requirements, 
+    req.MaxCreditLoad, 
+    req.MaxSets,     // NEW: from Phase 2
+    req.PreferredTheme, // NEW: from Phase 2
+	)
 
 	warningMsg := ""
 	if req.MaxCreditLoad > 60 {
 		warningMsg = "The student is currently doing a credit overload, make sure to already contact CMKL staff"
 	}
 
-	response := RecommendationSet{
-		StudentID:      req.StudentID,
-		Semester:       req.Semester,
-		RecommendedSet: recommendedSet,
-		TotalCredits:   totalCredits,
-		Metrics:        EvaluationMetrics{GoodnessScore: 0.85},
-		Metadata: RecommendationMetadata{
-			GenerationTimestamp: time.Now(),
-			AlgorithmVersion:    "1.31-Identity-JSON-Label",
-		},
-		Status:  "success",
-		Warning: warningMsg,
-	}
+// Build the new response with the array of roadmaps
+response := RecommendationResponse{
+    StudentID: req.StudentID,
+    Semester:  req.Semester,
+    Roadmaps:  roadmaps,
+    Status:    "success",
+    Warning:   warningMsg,
+    // Add Metadata here if you added it to your RecommendationResponse struct in models.go!
+}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

@@ -1,101 +1,145 @@
 package main
 
-import "math"
+import (
+	"math"
+	"sort"
+	"strings"
+	// any other imports you have here
+)
 
-// OptimizeCourseSet selects optimal combination of courses for the semester
-func OptimizeCourseSet(
-	scoredCourses []RecommendedCourse,
+// OptimizeCourseSets generates up to 4 thematic roadmaps
+func OptimizeCourseSets(
+	baseScoredCourses []RecommendedCourse,
 	studentProfile *StudentProfile,
 	requirements *CurriculumRequirements,
 	maxCreditLoad float64,
-) []RecommendedCourse {
-	var selectedCourses []RecommendedCourse
-	totalCredits := 0.0
+	maxSets int,
+	preferredTheme string,
+) []CourseSet {
 
-	// UPDATED: Allow maxCreditLoad to exceed 60 if requested
-	// absoluteMax := 60.0
-	targetCredits := maxCreditLoad // math.Min(maxCreditLoad, absoluteMax) removed
+	// 1. Cap the number of roadmaps requested (Max 4)
+	if maxSets <= 0 { maxSets = 1 }
+	if maxSets > 4 { maxSets = 4 }
 
-	subdomainCount := make(map[string]int)
-	maxPerSubdomain := 10
+	defaultThemes := []string{"code", "science", "games", "business"}
+	var roadmaps []CourseSet
 
-	// 1. Identify Graduation Requirements
-	graduationReqMap := make(map[string]bool)
-	for _, req := range requirements.RequiredCompetencies {
-		graduationReqMap[req] = true
-	}
-
-	// 2. Priority Selection: Pick up to 3 distinct Graduation Requirements first
-	priorityCount := 0
-	targetPriorityCount := 3
-
-	// Helper to check if course satisfies a missing graduation requirement
-	isGraduationRequirement := func(c Course) bool {
-		if graduationReqMap[c.CourseCode] {
-			return true
+	// 2. The Multi-Roadmap Loop
+	for i := 0; i < maxSets; i++ {
+		
+		// Determine the theme for this specific roadmap iteration
+		currentTheme := preferredTheme
+		if currentTheme == "" && i < len(defaultThemes) {
+			currentTheme = defaultThemes[i]
 		}
-		if graduationReqMap[c.CourseID] {
-			return true
-		}
-		for _, taught := range c.TeachesCompetencies {
-			if graduationReqMap[taught] {
-				return true
+
+		// --- THEME SCORING & SORTING ---
+		// Create a fresh copy of the courses for this loop iteration 
+		// so we don't permanently mess up the base scores!
+		iterationCourses := make([]RecommendedCourse, len(baseScoredCourses))
+		copy(iterationCourses, baseScoredCourses)
+
+		// Apply the Theme Bonus
+		if currentTheme != "" {
+			keywords := ThemeKeywords[strings.ToLower(currentTheme)]
+			for idx, courseRec := range iterationCourses {
+				course := courseRec.Course
+				// Check if CourseCode or SubdomainID matches the theme keywords
+				for _, word := range keywords {
+					if strings.Contains(strings.ToLower(course.CourseCode), strings.ToLower(word)) ||
+					   strings.Contains(strings.ToLower(course.SubdomainID), strings.ToLower(word)) {
+						// Give a massive boost to force it to the top of the selection pool
+						iterationCourses[idx].FitScore += 100.0
+						break
+					}
+				}
 			}
 		}
-		return false
+
+		// Re-sort the copied list based on the new themed scores (highest score first)
+		sort.Slice(iterationCourses, func(a, b int) bool {
+    	return iterationCourses[a].FitScore > iterationCourses[b].FitScore 
+		})
+		// --- VARIETY GENERATOR ---
+		// To ensure roadmaps are actually different if the theme is the same, skip the top 'i' courses
+		if len(iterationCourses) > i && preferredTheme != "" {
+			iterationCourses = iterationCourses[i:] // Slice off the top 'i' elements
+		}
+
+		// ====================================================================
+		// --- YOUR ORIGINAL SELECTION LOGIC (Unchanged, just uses iterationCourses) ---
+		// ====================================================================
+		var selectedCourses []RecommendedCourse
+		totalCredits := 0.0
+		targetCredits := maxCreditLoad 
+
+		subdomainCount := make(map[string]int)
+		maxPerSubdomain := 10
+
+		graduationReqMap := make(map[string]bool)
+		for _, req := range requirements.RequiredCompetencies {
+			graduationReqMap[req] = true
+		}
+
+		priorityCount := 0
+		targetPriorityCount := 3
+
+		isGraduationRequirement := func(c Course) bool { // Assumes 'Course' is your struct name
+			if graduationReqMap[c.CourseCode] { return true }
+			if graduationReqMap[c.CourseID] { return true }
+			for _, taught := range c.TeachesCompetencies {
+				if graduationReqMap[taught] { return true }
+			}
+			return false
+		}
+
+		// Phase 1: Priority Pass
+		for _, courseRec := range iterationCourses {
+			if priorityCount >= targetPriorityCount { break }
+
+			course := courseRec.Course
+
+			if !isGraduationRequirement(course) { continue }
+			if totalCredits+course.CreditHours > targetCredits { continue }
+			if containsRecommendedCourse(selectedCourses, courseRec) { continue }
+
+			selectedCourses = append(selectedCourses, courseRec)
+			totalCredits += course.CreditHours
+			subdomainCount[course.SubdomainID]++
+			priorityCount++
+		}
+
+		// Phase 2: Fill the rest
+		for _, courseRec := range iterationCourses {
+			course := courseRec.Course
+
+			if containsRecommendedCourse(selectedCourses, courseRec) { continue }
+			if totalCredits+course.CreditHours > targetCredits { continue }
+			if subdomainCount[course.SubdomainID] >= maxPerSubdomain { continue }
+
+			selectedCourses = append(selectedCourses, courseRec)
+			totalCredits += course.CreditHours
+			subdomainCount[course.SubdomainID]++
+
+			if totalCredits >= targetCredits { break }
+		}
+		// ====================================================================
+
+		// --- PACKAGE THE ROADMAP ---
+		var roadmapScore float64
+		for _, c := range selectedCourses {
+			roadmapScore += c.FitScore 
+		}
+
+		roadmaps = append(roadmaps, CourseSet{
+			Theme:        currentTheme,
+			Courses:      selectedCourses,
+			TotalScore:   roadmapScore,
+			TotalCredits: totalCredits,
+		})
 	}
 
-	// Phase 1: Priority Pass
-	for _, courseRec := range scoredCourses {
-		if priorityCount >= targetPriorityCount {
-			break
-		}
-
-		course := courseRec.Course
-
-		if !isGraduationRequirement(course) {
-			continue
-		}
-
-		if totalCredits+course.CreditHours > targetCredits {
-			continue
-		}
-		if containsRecommendedCourse(selectedCourses, courseRec) {
-			continue
-		}
-
-		selectedCourses = append(selectedCourses, courseRec)
-		totalCredits += course.CreditHours
-		subdomainCount[course.SubdomainID]++
-		priorityCount++
-	}
-
-	// Phase 2: Fill the rest
-	for _, courseRec := range scoredCourses {
-		course := courseRec.Course
-
-		if containsRecommendedCourse(selectedCourses, courseRec) {
-			continue
-		}
-
-		if totalCredits+course.CreditHours > targetCredits {
-			continue
-		}
-		if subdomainCount[course.SubdomainID] >= maxPerSubdomain {
-			continue
-		}
-
-		selectedCourses = append(selectedCourses, courseRec)
-		totalCredits += course.CreditHours
-		subdomainCount[course.SubdomainID]++
-
-		// UPDATED: Relax the break condition slightly to allow filling up to exact target
-		if totalCredits >= targetCredits {
-			break
-		}
-	}
-
-	return selectedCourses
+	return roadmaps
 }
 
 // EvaluateRecommendationSet calculates quality metrics

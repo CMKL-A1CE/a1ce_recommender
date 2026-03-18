@@ -61,7 +61,13 @@ func (s *RecommenderService) GenerateRecommendations(req *RecommendationRequest)
 	scoredCourses := s.scoreCourses(candidateCourses, studentProfile, requirements)
 
 	// Step 7: Optimize course set selection
-	recommendedSet := OptimizeCourseSet(scoredCourses, studentProfile, requirements, req.MaxCreditLoad)
+	// Call the new Phase 2 function, ask for 1 default roadmap, and extract its courses
+	roadmaps := OptimizeCourseSets(scoredCourses, studentProfile, requirements, req.MaxCreditLoad, 1, "")
+	
+	var recommendedSet []RecommendedCourse
+	if len(roadmaps) > 0 {
+		recommendedSet = roadmaps[0].Courses
+	}
 
 	// Step 8: Evaluate recommendation quality
 	metrics := EvaluateRecommendationSet(recommendedSet, studentProfile, requirements)

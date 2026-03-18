@@ -104,6 +104,22 @@
                 <label>Max Credit Load:</label>
                 <input type="number" id="maxCredit" value="60">
             </div>
+
+            <div class="form-group">
+                <label>Max Sets (Number of Roadmaps):</label>
+                <input type="number" id="maxSets" value="4" min="1" max="4">
+            </div>
+            <div class="form-group">
+                <label>Preferred Theme (Optional):</label>
+                <select id="preferredTheme">
+                    <option value="">None (Cycle all themes)</option>
+                    <option value="code">Code / Software</option>
+                    <option value="science">Science / Math</option>
+                    <option value="games">Games / Interactive</option>
+                    <option value="business">Business / Management</option>
+                </select>
+            </div>
+
             <div class="form-group">
                 <label>Custom JSON Body (optional):</label>
                 <textarea id="customBody" placeholder='{"student_id": "S12345", "semester": "Spring 2026"}'></textarea>
@@ -155,12 +171,16 @@
                 const semester = document.getElementById('semester').value;
                 const maxCredit = document.getElementById('maxCredit').value;
                 const previousSemester = document.getElementById('previousSemester').value;
+                const maxSets = document.getElementById('maxSets').value; // NEW
+                const preferredTheme = document.getElementById('preferredTheme').value; // NEW
 
                 const body = {
                     student_id: studentId,
                     semester: semester,
                     max_credit_load: parseFloat(maxCredit),
-                    previous_semester: previousSemester 
+                    previous_semester: previousSemester,
+                    max_sets: parseInt(maxSets), // NEW
+                    preferred_theme: preferredTheme // NEW
                 };
 
                 sendRecRequest(body);
@@ -173,12 +193,16 @@
                 const studentId = document.getElementById('studentId').value;
                 const semester = document.getElementById('semester').value;
                 const maxCredit = document.getElementById('maxCredit').value;
+                const maxSets = document.getElementById('maxSets').value; // NEW
+                const preferredTheme = document.getElementById('preferredTheme').value; // NEW
 
                 const body = {
                     student_id: studentId,
                     semester: semester,
                     max_credit_load: parseFloat(maxCredit),
-                    previous_semester: "ALL" // Trigger the "Overall" logic in backend
+                    previous_semester: "ALL", 
+                    max_sets: parseInt(maxSets), // NEW
+                    preferred_theme: preferredTheme // NEW
                 };
 
                 sendRecRequest(body);
@@ -241,12 +265,16 @@
                         const semester = document.getElementById('semester').value;
                         const maxCredit = document.getElementById('maxCredit').value;
                         const previousSemester = document.getElementById('previousSemester').value;
+                        const maxSets = document.getElementById('maxSets').value; // NEW
+                        const preferredTheme = document.getElementById('preferredTheme').value; // NEW
 
                         options.body = JSON.stringify({
                             student_id: studentId,
                             semester: semester,
                             max_credit_load: parseFloat(maxCredit),
-                            previous_semester: previousSemester
+                            previous_semester: previousSemester,
+                            max_sets: parseInt(maxSets), // NEW
+                            preferred_theme: preferredTheme // NEW
                         });
                     }
                 } else {
