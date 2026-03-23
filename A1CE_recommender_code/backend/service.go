@@ -63,7 +63,7 @@ func (s *RecommenderService) GenerateRecommendations(req *RecommendationRequest)
 	// Step 7: Optimize course set selection
 	// Call the new Phase 2 function, ask for 1 default roadmap, and extract its courses
 	roadmaps := OptimizeCourseSets(scoredCourses, studentProfile, requirements, req.MaxCreditLoad, 1, "")
-	
+
 	var recommendedSet []RecommendedCourse
 	if len(roadmaps) > 0 {
 		recommendedSet = roadmaps[0].Courses
@@ -134,7 +134,9 @@ func (s *RecommenderService) scoreCourses(
 		interestScore := CalculateInterestScore(course, profile)
 		progressScore := CalculateProgramProgressScore(course, profile, requirements)
 
-		fitScore := 0.4*compScore + 0.3*interestScore + 0.3*progressScore
+		//fitScore := 0.4*compScore + 0.3*interestScore + 0.3*progressScore
+		// Use the live dynamically injected weights instead of hardcoded numbers
+		fitScore := (CurrentWeights.Competency * compScore) + (CurrentWeights.Interest * interestScore) + (CurrentWeights.Progress * progressScore)
 
 		recommended := RecommendedCourse{
 			Course:                 course,

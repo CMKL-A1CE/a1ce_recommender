@@ -1,7 +1,7 @@
 package main
 
 import (
-    "time"
+	"time"
 )
 
 // Request structures
@@ -12,7 +12,7 @@ type RecommendationRequest struct {
 	MaxSets          int                    `json:"max_sets"`
 	Constraints      *RecommendationFilters `json:"constraints,omitempty"`
 	PreviousSemester string                 `json:"previous_semester,omitempty"`
-	PreferredTheme   string 				`json:"preferred_theme"`
+	PreferredTheme   string                 `json:"preferred_theme"`
 }
 
 type RecommendationFilters struct {
@@ -172,9 +172,23 @@ var ThemeKeywords = map[string][]string{
 }
 
 type RecommendationResponse struct {
-    StudentID string      `json:"student_id"`
-    Semester  string      `json:"semester"`
-    Roadmaps  []CourseSet `json:"roadmaps"`
-    Status    string      `json:"status"`
-    Warning   string      `json:"warning"`
+	StudentID string      `json:"student_id"`
+	Semester  string      `json:"semester"`
+	Roadmaps  []CourseSet `json:"roadmaps"`
+	Status    string      `json:"status"`
+	Warning   string      `json:"warning"`
+}
+
+// Holds the current live weights for the algorithm
+type ScoringWeights struct {
+	Competency float64 `json:"competency_weight"`
+	Interest   float64 `json:"interest_weight"`
+	Progress   float64 `json:"progress_weight"`
+}
+
+// The response when someone successfully updates the weights
+type WeightUpdateResponse struct {
+	Status  string         `json:"status"`
+	Message string         `json:"message"`
+	Weights ScoringWeights `json:"current_weights"`
 }

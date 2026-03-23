@@ -15,6 +15,13 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Default starting weights
+var CurrentWeights = ScoringWeights{
+	Competency: 0.4,
+	Interest:   0.3,
+	Progress:   0.3,
+}
+
 func main() {
 	godotenv.Load() // Loads the A1CE_JWT_KEY variable
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
@@ -50,6 +57,7 @@ func main() {
 	mux.HandleFunc("/api/v1/student-data", handleStudentData)
 	mux.HandleFunc("/api/v1/course-catalog", handleCourseCatalog)
 	mux.HandleFunc("/api/v1/health", handleHealth)
+	mux.HandleFunc("/api/v1/weights", handleWeightsUpdate)
 
 	handler := corsMiddleware(loggingMiddleware(authMiddleware(mux)))
 
@@ -427,12 +435,12 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	roadmaps := OptimizeCourseSets(
-    scoredCourses, 
-    profile,         // Pass the student profile
-    requirements, 
-    req.MaxCreditLoad, 
-    req.MaxSets,     // NEW: from Phase 2
-    req.PreferredTheme, // NEW: from Phase 2
+		scoredCourses,
+		profile, // Pass the student profile
+		requirements,
+		req.MaxCreditLoad,
+		req.MaxSets,        // NEW: from Phase 2
+		req.PreferredTheme, // NEW: from Phase 2
 	)
 
 	warningMsg := ""
@@ -440,15 +448,15 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		warningMsg = "The student is currently doing a credit overload, make sure to already contact CMKL staff"
 	}
 
-// Build the new response with the array of roadmaps
-response := RecommendationResponse{
-    StudentID: req.StudentID,
-    Semester:  req.Semester,
-    Roadmaps:  roadmaps,
-    Status:    "success",
-    Warning:   warningMsg,
-    // Add Metadata here if you added it to your RecommendationResponse struct in models.go!
-}
+	// Build the new response with the array of roadmaps
+	response := RecommendationResponse{
+		StudentID: req.StudentID,
+		Semester:  req.Semester,
+		Roadmaps:  roadmaps,
+		Status:    "success",
+		Warning:   warningMsg,
+		// Add Metadata here if you added it to your RecommendationResponse struct in models.go!
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -518,5 +526,34 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
+	})
+}
+
+func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only POST requests allowed", "")
+		return
+	}
+
+	var newWeights ScoringWeights
+	if err := json.NewDecoder(r.Body).Decode(&newWeights); err != nil {
+		sendError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to parse weights", err.Error())
+		return
+	}
+
+	// Basic validation to ensure they don't send negative weights
+	if newWeights.Competency < 0 || newWeights.Interest < 0 || newWeights.Progress < 0 {
+		sendError(w, http.StatusBadRequest, "INVALID_WEIGHTS", "Weights cannot be negative", "")
+		return
+	}
+
+	// Update the live server state
+	CurrentWeights = newWeights
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(WeightUpdateResponse{
+		Status:  "success",
+		Message: "Algorithm scoring weights updated successfully",
+		Weights: CurrentWeights,
 	})
 }

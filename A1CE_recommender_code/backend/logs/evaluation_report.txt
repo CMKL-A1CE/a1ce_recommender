@@ -1,20 +1,16 @@
-2026/03/18 15:44:58 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/03/18 15:44:58 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
-2026/03/18 15:44:58 ===========================================
-2026/03/18 15:44:58 A1CE Course Recommender API Server
-2026/03/18 15:44:58 ===========================================
-2026/03/18 15:44:58 Server listening on: http://localhost:8080
-2026/03/18 15:45:16 GET /api/v1/health
-2026/03/18 15:45:16 Completed in 0s
-2026/03/18 15:45:19 GET /api/v1/student-data
-2026/03/18 15:45:21 Completed in 2.3766928s
-2026/03/18 15:45:22 POST /api/v1/recommendations
-2026/03/18 15:45:23 Scanning 8 semesters for identity codes...
-2026/03/18 15:45:23 History scan complete. Total unique markers: 382
-2026/03/18 15:45:27 Completed in 4.2274337s
-2026/03/18 15:51:31 GET /api/v1/health
-2026/03/18 15:51:31 Completed in 0s
-2026/03/18 15:51:38 POST /api/v1/recommendations
-2026/03/18 15:51:40 Scanning 8 semesters for identity codes...
-2026/03/18 15:51:40 History scan complete. Total unique markers: 382
-2026/03/18 15:51:42 Completed in 3.9537437s
+2026/03/23 14:51:58 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/03/23 14:51:58 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
+2026/03/23 14:51:58 ===========================================
+2026/03/23 14:51:58 A1CE Course Recommender API Server
+2026/03/23 14:51:58 ===========================================
+2026/03/23 14:51:58 Server listening on: http://localhost:8080
+2026/03/23 14:52:19 GET /api/v1/health
+2026/03/23 14:52:19 Completed in 0s
+2026/03/23 14:52:30 POST /api/v1/recommendations
+2026/03/23 14:52:33 Scanning 8 semesters for identity codes...
+2026/03/23 14:52:33 History scan complete. Total unique markers: 382
+2026/03/23 14:52:37 Completed in 6.9450946s
+2026/03/23 14:53:05 POST /api/v1/recommendations
+2026/03/23 14:53:06 Scanning 8 semesters for identity codes...
+2026/03/23 14:53:06 History scan complete. Total unique markers: 382
+2026/03/23 14:53:10 Completed in 5.2658338s
