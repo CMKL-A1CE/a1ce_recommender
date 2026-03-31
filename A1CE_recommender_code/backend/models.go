@@ -13,6 +13,7 @@ type RecommendationRequest struct {
 	Constraints      *RecommendationFilters `json:"constraints,omitempty"`
 	PreviousSemester string                 `json:"previous_semester,omitempty"`
 	PreferredTheme   string                 `json:"preferred_theme"`
+	WeightType       string                 `json:"weight_type,omitempty"`
 }
 
 type RecommendationFilters struct {
@@ -172,11 +173,12 @@ var ThemeKeywords = map[string][]string{
 }
 
 type RecommendationResponse struct {
-	StudentID string      `json:"student_id"`
-	Semester  string      `json:"semester"`
-	Roadmaps  []CourseSet `json:"roadmaps"`
-	Status    string      `json:"status"`
-	Warning   string      `json:"warning"`
+	StudentID   string         `json:"student_id"`
+	Semester    string         `json:"semester"`
+	Roadmaps    []CourseSet    `json:"roadmaps"`
+	Status      string         `json:"status"`
+	Warning     string         `json:"warning"`
+	WeightsUsed ScoringWeights `json:"weights_used"`
 }
 
 // Holds the current live weights for the algorithm

@@ -266,6 +266,18 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- 1. SET UP DYNAMIC WEIGHTS ---
+	compW, intW, progW := CurrentWeights.Competency, CurrentWeights.Interest, CurrentWeights.Progress
+	if req.WeightType == "fast_track" {
+		compW, intW, progW = 0.1, 0.1, 0.8
+	} else if req.WeightType == "explore_passions" {
+		compW, intW, progW = 0.1, 0.8, 0.1
+	} else if req.WeightType == "play_it_safe" {
+		compW, intW, progW = 0.8, 0.1, 0.1
+	} else if req.WeightType == "balanced" {
+		compW, intW, progW = 0.33, 0.33, 0.34
+	}
+
 	client := NewA1CEClient()
 	client.JWTToken = getAuthorzationCred(r, "token")
 
@@ -345,8 +357,8 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	isCurriculumReq := make(map[string]bool)
 	rules, _ := loadCurriculumRules("curriculum_rules.json")
 	if rules != nil {
-		for code, req := range rules {
-			if req {
+		for code, rReq := range rules {
+			if rReq {
 				isCurriculumReq[normalizeCode(code)] = true
 			}
 		}
@@ -389,7 +401,9 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		compScore := CalculateCompetencyMatchScore(course, profile)
 		interestScore := CalculateInterestScore(course, profile)
 		progScore := CalculateProgramProgressScore(course, profile, requirements)
-		fitScore := 0.2*compScore + 0.6*interestScore + 0.2*progScore
+
+		// --- 2. APPLY DYNAMIC WEIGHTS TO THE MATH ---
+		fitScore := (compW * compScore) + (intW * interestScore) + (progW * progScore)
 
 		displayCourse := CourseOutput{
 			CourseID:             course.CourseID,
@@ -434,13 +448,14 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
 	roadmaps := OptimizeCourseSets(
 		scoredCourses,
-		profile, // Pass the student profile
+		profile,
 		requirements,
 		req.MaxCreditLoad,
-		req.MaxSets,        // NEW: from Phase 2
-		req.PreferredTheme, // NEW: from Phase 2
+		req.MaxSets,
+		req.PreferredTheme,
 	)
 
 	warningMsg := ""
@@ -448,14 +463,14 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		warningMsg = "The student is currently doing a credit overload, make sure to already contact CMKL staff"
 	}
 
-	// Build the new response with the array of roadmaps
+	// --- 3. ATTACH THE WEIGHTS TO THE OUTPUT FOR POSTMAN ---
 	response := RecommendationResponse{
-		StudentID: req.StudentID,
-		Semester:  req.Semester,
-		Roadmaps:  roadmaps,
-		Status:    "success",
-		Warning:   warningMsg,
-		// Add Metadata here if you added it to your RecommendationResponse struct in models.go!
+		StudentID:   req.StudentID,
+		Semester:    req.Semester,
+		WeightsUsed: ScoringWeights{Competency: compW, Interest: intW, Progress: progW},
+		Roadmaps:    roadmaps,
+		Status:      "success",
+		Warning:     warningMsg,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
