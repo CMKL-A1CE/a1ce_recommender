@@ -28,3 +28,15 @@
 2026/03/31 14:33:28 Scanning 8 semesters for identity codes...
 2026/03/31 14:33:29 History scan complete. Total unique markers: 382
 2026/03/31 14:33:32 Completed in 5.4194848s
+2026/03/31 14:38:55 POST /api/v1/weights
+2026/03/31 14:38:55 Completed in 0s
+2026/03/31 14:38:58 POST /api/v1/weights
+2026/03/31 14:38:58 Completed in 0s
+2026/03/31 14:39:02 POST /api/v1/weights
+2026/03/31 14:39:02 Completed in 0s
+2026/03/31 14:39:08 POST /api/v1/weights
+2026/03/31 14:39:08 Completed in 0s
+2026/03/31 14:39:11 GET /api/v1/health
+2026/03/31 14:39:11 Completed in 0s
+2026/03/31 14:39:13 GET /api/v1/student-data
+2026/03/31 14:39:15 Completed in 2.0978688s
