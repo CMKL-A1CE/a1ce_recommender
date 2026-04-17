@@ -405,6 +405,20 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		// --- 2. APPLY DYNAMIC WEIGHTS TO THE MATH ---
 		fitScore := (compW * compScore) + (intW * interestScore) + (progW * progScore)
 
+		// Determine the dominant factor for the Reason string
+		reason := ""
+		weightedComp := compW * compScore
+		weightedInt := intW * interestScore
+		weightedProg := progW * progScore
+
+		if weightedComp >= weightedInt && weightedComp >= weightedProg {
+			reason = fmt.Sprintf("Strong Competency Match (Score: %.2f)", compScore)
+		} else if weightedInt >= weightedComp && weightedInt >= weightedProg {
+			reason = fmt.Sprintf("Strong Interest Alignment (Score: %.2f)", interestScore)
+		} else {
+			reason = fmt.Sprintf("High Program Progress Value (Score: %.2f)", progScore)
+		}
+
 		displayCourse := CourseOutput{
 			CourseID:             course.CourseID,
 			TemplateID:           course.TemplateID,
@@ -437,7 +451,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			CompetencyMatchScore:   compScore,
 			InterestAlignmentScore: interestScore,
 			ProgramProgressScore:   progScore,
-			Reason:                 fmt.Sprintf("Interest Score: %.2f", interestScore),
+			Reason:                 reason,
 		})
 	}
 

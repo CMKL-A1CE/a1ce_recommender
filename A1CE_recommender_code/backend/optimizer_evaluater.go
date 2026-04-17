@@ -18,15 +18,19 @@ func OptimizeCourseSets(
 ) []CourseSet {
 
 	// 1. Cap the number of roadmaps requested (Max 4)
-	if maxSets <= 0 { maxSets = 1 }
-	if maxSets > 4 { maxSets = 4 }
+	if maxSets <= 0 {
+		maxSets = 1
+	}
+	if maxSets > 4 {
+		maxSets = 4
+	}
 
 	defaultThemes := []string{"code", "science", "games", "business"}
 	var roadmaps []CourseSet
 
 	// 2. The Multi-Roadmap Loop
 	for i := 0; i < maxSets; i++ {
-		
+
 		// Determine the theme for this specific roadmap iteration
 		currentTheme := preferredTheme
 		if currentTheme == "" && i < len(defaultThemes) {
@@ -34,7 +38,7 @@ func OptimizeCourseSets(
 		}
 
 		// --- THEME SCORING & SORTING ---
-		// Create a fresh copy of the courses for this loop iteration 
+		// Create a fresh copy of the courses for this loop iteration
 		// so we don't permanently mess up the base scores!
 		iterationCourses := make([]RecommendedCourse, len(baseScoredCourses))
 		copy(iterationCourses, baseScoredCourses)
@@ -47,7 +51,7 @@ func OptimizeCourseSets(
 				// Check if CourseCode or SubdomainID matches the theme keywords
 				for _, word := range keywords {
 					if strings.Contains(strings.ToLower(course.CourseCode), strings.ToLower(word)) ||
-					   strings.Contains(strings.ToLower(course.SubdomainID), strings.ToLower(word)) {
+						strings.Contains(strings.ToLower(course.SubdomainID), strings.ToLower(word)) {
 						// Give a massive boost to force it to the top of the selection pool
 						iterationCourses[idx].FitScore += 100.0
 						break
@@ -58,7 +62,7 @@ func OptimizeCourseSets(
 
 		// Re-sort the copied list based on the new themed scores (highest score first)
 		sort.Slice(iterationCourses, func(a, b int) bool {
-    	return iterationCourses[a].FitScore > iterationCourses[b].FitScore 
+			return iterationCourses[a].FitScore > iterationCourses[b].FitScore
 		})
 		// --- VARIETY GENERATOR ---
 		// To ensure roadmaps are actually different if the theme is the same, skip the top 'i' courses
@@ -71,7 +75,7 @@ func OptimizeCourseSets(
 		// ====================================================================
 		var selectedCourses []RecommendedCourse
 		totalCredits := 0.0
-		targetCredits := maxCreditLoad 
+		targetCredits := maxCreditLoad
 
 		subdomainCount := make(map[string]int)
 		maxPerSubdomain := 10
@@ -85,23 +89,37 @@ func OptimizeCourseSets(
 		targetPriorityCount := 3
 
 		isGraduationRequirement := func(c Course) bool { // Assumes 'Course' is your struct name
-			if graduationReqMap[c.CourseCode] { return true }
-			if graduationReqMap[c.CourseID] { return true }
+			if graduationReqMap[c.CourseCode] {
+				return true
+			}
+			if graduationReqMap[c.CourseID] {
+				return true
+			}
 			for _, taught := range c.TeachesCompetencies {
-				if graduationReqMap[taught] { return true }
+				if graduationReqMap[taught] {
+					return true
+				}
 			}
 			return false
 		}
 
 		// Phase 1: Priority Pass
 		for _, courseRec := range iterationCourses {
-			if priorityCount >= targetPriorityCount { break }
+			if priorityCount >= targetPriorityCount {
+				break
+			}
 
 			course := courseRec.Course
 
-			if !isGraduationRequirement(course) { continue }
-			if totalCredits+course.CreditHours > targetCredits { continue }
-			if containsRecommendedCourse(selectedCourses, courseRec) { continue }
+			if !isGraduationRequirement(course) {
+				continue
+			}
+			if totalCredits+course.CreditHours > targetCredits {
+				continue
+			}
+			if containsRecommendedCourse(selectedCourses, courseRec) {
+				continue
+			}
 
 			selectedCourses = append(selectedCourses, courseRec)
 			totalCredits += course.CreditHours
@@ -113,29 +131,55 @@ func OptimizeCourseSets(
 		for _, courseRec := range iterationCourses {
 			course := courseRec.Course
 
-			if containsRecommendedCourse(selectedCourses, courseRec) { continue }
-			if totalCredits+course.CreditHours > targetCredits { continue }
-			if subdomainCount[course.SubdomainID] >= maxPerSubdomain { continue }
+			if containsRecommendedCourse(selectedCourses, courseRec) {
+				continue
+			}
+			if totalCredits+course.CreditHours > targetCredits {
+				continue
+			}
+			if subdomainCount[course.SubdomainID] >= maxPerSubdomain {
+				continue
+			}
 
 			selectedCourses = append(selectedCourses, courseRec)
 			totalCredits += course.CreditHours
 			subdomainCount[course.SubdomainID]++
 
-			if totalCredits >= targetCredits { break }
+			if totalCredits >= targetCredits {
+				break
+			}
 		}
 		// ====================================================================
 
 		// --- PACKAGE THE ROADMAP ---
-		var roadmapScore float64
-		for _, c := range selectedCourses {
-			roadmapScore += c.FitScore 
+		// --- PACKAGE THE ROADMAP ---
+		var sumScore, minScore, maxScore, avgScore float64
+
+		if len(selectedCourses) > 0 {
+			// Initialize min and max with the first course's score
+			minScore = selectedCourses[0].FitScore
+			maxScore = selectedCourses[0].FitScore
+
+			for _, c := range selectedCourses {
+				sumScore += c.FitScore
+				if c.FitScore < minScore {
+					minScore = c.FitScore
+				}
+				if c.FitScore > maxScore {
+					maxScore = c.FitScore
+				}
+			}
+			avgScore = sumScore / float64(len(selectedCourses))
 		}
 
+		// Package the roadmap using the new metrics
 		roadmaps = append(roadmaps, CourseSet{
 			Theme:        currentTheme,
 			Courses:      selectedCourses,
-			TotalScore:   roadmapScore,
-			TotalCredits: totalCredits,
+			AverageScore: avgScore,
+			MinScore:     minScore,
+			MaxScore:     maxScore,
+			TotalCredits: int(totalCredits), // cast to int to match your struct
 		})
 	}
 

@@ -161,8 +161,10 @@ type CourseCatalogResponse struct {
 type CourseSet struct {
 	Theme        string              `json:"theme"`
 	Courses      []RecommendedCourse `json:"courses"`
-	TotalScore   float64             `json:"total_score"`
-	TotalCredits float64             `json:"total_credits"`
+	AverageScore float64             `json:"average_score"` // Replaces TotalScore
+	MinScore     float64             `json:"min_score"`     // Added for Boss
+	MaxScore     float64             `json:"max_score"`     // Added for Boss
+	TotalCredits int                 `json:"total_credits"`
 }
 
 var ThemeKeywords = map[string][]string{
