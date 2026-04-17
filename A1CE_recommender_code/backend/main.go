@@ -15,6 +15,13 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Default starting weights
+var CurrentWeights = ScoringWeights{
+	Competency: 0.4,
+	Interest:   0.3,
+	Progress:   0.3,
+}
+
 func main() {
 	godotenv.Load() // Loads the A1CE_JWT_KEY variable
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
@@ -50,6 +57,7 @@ func main() {
 	mux.HandleFunc("/api/v1/student-data", handleStudentData)
 	mux.HandleFunc("/api/v1/course-catalog", handleCourseCatalog)
 	mux.HandleFunc("/api/v1/health", handleHealth)
+	mux.HandleFunc("/api/v1/weights", handleWeightsUpdate)
 
 	handler := corsMiddleware(loggingMiddleware(authMiddleware(mux)))
 
@@ -258,6 +266,18 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- 1. SET UP DYNAMIC WEIGHTS ---
+	compW, intW, progW := CurrentWeights.Competency, CurrentWeights.Interest, CurrentWeights.Progress
+	if req.WeightType == "fast_track" {
+		compW, intW, progW = 0.1, 0.1, 0.8
+	} else if req.WeightType == "explore_passions" {
+		compW, intW, progW = 0.1, 0.8, 0.1
+	} else if req.WeightType == "play_it_safe" {
+		compW, intW, progW = 0.8, 0.1, 0.1
+	} else if req.WeightType == "balanced" {
+		compW, intW, progW = 0.33, 0.33, 0.34
+	}
+
 	client := NewA1CEClient()
 	client.JWTToken = getAuthorzationCred(r, "token")
 
@@ -337,8 +357,8 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	isCurriculumReq := make(map[string]bool)
 	rules, _ := loadCurriculumRules("curriculum_rules.json")
 	if rules != nil {
-		for code, req := range rules {
-			if req {
+		for code, rReq := range rules {
+			if rReq {
 				isCurriculumReq[normalizeCode(code)] = true
 			}
 		}
@@ -381,7 +401,23 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		compScore := CalculateCompetencyMatchScore(course, profile)
 		interestScore := CalculateInterestScore(course, profile)
 		progScore := CalculateProgramProgressScore(course, profile, requirements)
-		fitScore := 0.2*compScore + 0.6*interestScore + 0.2*progScore
+
+		// --- 2. APPLY DYNAMIC WEIGHTS TO THE MATH ---
+		fitScore := (compW * compScore) + (intW * interestScore) + (progW * progScore)
+
+		// Determine the dominant factor for the Reason string
+		reason := ""
+		weightedComp := compW * compScore
+		weightedInt := intW * interestScore
+		weightedProg := progW * progScore
+
+		if weightedComp >= weightedInt && weightedComp >= weightedProg {
+			reason = fmt.Sprintf("Strong Competency Match (Score: %.2f)", compScore)
+		} else if weightedInt >= weightedComp && weightedInt >= weightedProg {
+			reason = fmt.Sprintf("Strong Interest Alignment (Score: %.2f)", interestScore)
+		} else {
+			reason = fmt.Sprintf("High Program Progress Value (Score: %.2f)", progScore)
+		}
 
 		displayCourse := CourseOutput{
 			CourseID:             course.CourseID,
@@ -415,7 +451,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			CompetencyMatchScore:   compScore,
 			InterestAlignmentScore: interestScore,
 			ProgramProgressScore:   progScore,
-			Reason:                 fmt.Sprintf("Interest Score: %.2f", interestScore),
+			Reason:                 reason,
 		})
 	}
 
@@ -426,30 +462,29 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	recommendedSet := OptimizeCourseSet(scoredCourses, profile, requirements, req.MaxCreditLoad)
 
-	totalCredits := 0.0
-	for _, r := range recommendedSet {
-		totalCredits += r.Course.CreditHours
-	}
+	roadmaps := OptimizeCourseSets(
+		scoredCourses,
+		profile,
+		requirements,
+		req.MaxCreditLoad,
+		req.MaxSets,
+		req.PreferredTheme,
+	)
 
 	warningMsg := ""
 	if req.MaxCreditLoad > 60 {
 		warningMsg = "The student is currently doing a credit overload, make sure to already contact CMKL staff"
 	}
 
-	response := RecommendationSet{
-		StudentID:      req.StudentID,
-		Semester:       req.Semester,
-		RecommendedSet: recommendedSet,
-		TotalCredits:   totalCredits,
-		Metrics:        EvaluationMetrics{GoodnessScore: 0.85},
-		Metadata: RecommendationMetadata{
-			GenerationTimestamp: time.Now(),
-			AlgorithmVersion:    "1.31-Identity-JSON-Label",
-		},
-		Status:  "success",
-		Warning: warningMsg,
+	// --- 3. ATTACH THE WEIGHTS TO THE OUTPUT FOR POSTMAN ---
+	response := RecommendationResponse{
+		StudentID:   req.StudentID,
+		Semester:    req.Semester,
+		WeightsUsed: ScoringWeights{Competency: compW, Interest: intW, Progress: progW},
+		Roadmaps:    roadmaps,
+		Status:      "success",
+		Warning:     warningMsg,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -520,5 +555,34 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
+	})
+}
+
+func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only POST requests allowed", "")
+		return
+	}
+
+	var newWeights ScoringWeights
+	if err := json.NewDecoder(r.Body).Decode(&newWeights); err != nil {
+		sendError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to parse weights", err.Error())
+		return
+	}
+
+	// Basic validation to ensure they don't send negative weights
+	if newWeights.Competency < 0 || newWeights.Interest < 0 || newWeights.Progress < 0 {
+		sendError(w, http.StatusBadRequest, "INVALID_WEIGHTS", "Weights cannot be negative", "")
+		return
+	}
+
+	// Update the live server state
+	CurrentWeights = newWeights
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(WeightUpdateResponse{
+		Status:  "success",
+		Message: "Algorithm scoring weights updated successfully",
+		Weights: CurrentWeights,
 	})
 }

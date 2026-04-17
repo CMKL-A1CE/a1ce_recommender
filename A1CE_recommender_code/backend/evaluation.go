@@ -254,25 +254,25 @@ func EvaluateAllStudentsFromSQLite(dbPath string) error {
 	}
 
 	// Average accuracy
-    if len(accuracies) == 0 {
-        log.Println("No students with truth data found.")
-        fmt.Println("Average Recommendation Accuracy: 0.00%")
-        fmt.Println("Report written to logs/evaluation_report.txt")
-        return nil
-    }
+	if len(accuracies) == 0 {
+		log.Println("No students with truth data found.")
+		fmt.Println("Average Recommendation Accuracy: 0.00%")
+		fmt.Println("Report written to logs/evaluation_report.txt")
+		return nil
+	}
 
-    sum := 0.0
-    for _, v := range accuracies {
-        sum += v
-    }
-    avg := sum / float64(len(accuracies))
-    log.Printf("Average Recommendation Accuracy: %.2f%%\n", avg*100)
+	sum := 0.0
+	for _, v := range accuracies {
+		sum += v
+	}
+	avg := sum / float64(len(accuracies))
+	log.Printf("Average Recommendation Accuracy: %.2f%%\n", avg*100)
 
-    // Print final accuracy ALSO to terminal
-    fmt.Printf("Average Recommendation Accuracy: %.2f%%\n", avg*100)
+	// Print final accuracy ALSO to terminal
+	fmt.Printf("Average Recommendation Accuracy: %.2f%%\n", avg*100)
 
-    // Inform user (no blank line)
-    fmt.Println("Report written to logs/evaluation_report.txt")
+	// Inform user (no blank line)
+	fmt.Println("Report written to logs/evaluation_report.txt")
 
 	return nil
 }

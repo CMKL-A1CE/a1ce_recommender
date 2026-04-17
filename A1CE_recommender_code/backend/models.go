@@ -1,6 +1,8 @@
 package main
 
-import "time"
+import (
+	"time"
+)
 
 // Request structures
 type RecommendationRequest struct {
@@ -10,6 +12,8 @@ type RecommendationRequest struct {
 	MaxSets          int                    `json:"max_sets"`
 	Constraints      *RecommendationFilters `json:"constraints,omitempty"`
 	PreviousSemester string                 `json:"previous_semester,omitempty"`
+	PreferredTheme   string                 `json:"preferred_theme"`
+	WeightType       string                 `json:"weight_type,omitempty"`
 }
 
 type RecommendationFilters struct {
@@ -152,4 +156,43 @@ type CourseCatalogResponse struct {
 	CurriculumVersion int      `json:"curriculum_version"`
 	Courses           []Course `json:"courses"`
 	TotalCourses      int      `json:"total_courses"`
+}
+
+type CourseSet struct {
+	Theme        string              `json:"theme"`
+	Courses      []RecommendedCourse `json:"courses"`
+	AverageScore float64             `json:"average_score"` // Replaces TotalScore
+	MinScore     float64             `json:"min_score"`     // Added for Boss
+	MaxScore     float64             `json:"max_score"`     // Added for Boss
+	TotalCredits int                 `json:"total_credits"`
+}
+
+var ThemeKeywords = map[string][]string{
+	"code":     {"Programming", "Software", "Data", "Algorithm", "Computer", "Network"},
+	"science":  {"Physics", "Math", "Biology", "Chemistry", "Calculus", "Science"},
+	"games":    {"Game", "Interactive", "Graphics", "Strategy", "Survival", "Engine"},
+	"business": {"Business", "Management", "Economics", "Marketing", "Entrepreneurship"},
+}
+
+type RecommendationResponse struct {
+	StudentID   string         `json:"student_id"`
+	Semester    string         `json:"semester"`
+	Roadmaps    []CourseSet    `json:"roadmaps"`
+	Status      string         `json:"status"`
+	Warning     string         `json:"warning"`
+	WeightsUsed ScoringWeights `json:"weights_used"`
+}
+
+// Holds the current live weights for the algorithm
+type ScoringWeights struct {
+	Competency float64 `json:"competency_weight"`
+	Interest   float64 `json:"interest_weight"`
+	Progress   float64 `json:"progress_weight"`
+}
+
+// The response when someone successfully updates the weights
+type WeightUpdateResponse struct {
+	Status  string         `json:"status"`
+	Message string         `json:"message"`
+	Weights ScoringWeights `json:"current_weights"`
 }

@@ -72,6 +72,23 @@
                 <input type="text" id="jwtToken" placeholder="Leave empty for testing without auth">
             </div>
         </div>
+        
+        <div class="card">
+            <h2>Algorithm Weights Control</h2>
+            <p style="margin-bottom: 15px; font-size: 14px; color: #666;">Adjust the live scoring weights of the backend algorithm.</p>
+            
+            <div class="form-group">
+                <label>What is your goal for this semester?</label>
+                <select id="studentGoal">
+                    <option value="balanced">Balanced (Normal Schedule)</option>
+                    <option value="speed">Speedrun Graduation (Focus on Requirements)</option>
+                    <option value="fun">Explore Passions (Focus on Interests)</option>
+                    <option value="safe">Play it Safe (Focus on Existing Skills)</option>
+                </select>
+            </div>
+
+            <button class="btn-success" onclick="updateWeights()">Update Live Weights</button>
+        </div>
 
         <!-- Custom Request -->
         <div class="card">
@@ -104,6 +121,22 @@
                 <label>Max Credit Load:</label>
                 <input type="number" id="maxCredit" value="60">
             </div>
+
+            <div class="form-group">
+                <label>Max Sets (Number of Roadmaps):</label>
+                <input type="number" id="maxSets" value="4" min="1" max="4">
+            </div>
+            <div class="form-group">
+                <label>Preferred Theme (Optional):</label>
+                <select id="preferredTheme">
+                    <option value="">None (Cycle all themes)</option>
+                    <option value="code">Code / Software</option>
+                    <option value="science">Science / Math</option>
+                    <option value="games">Games / Interactive</option>
+                    <option value="business">Business / Management</option>
+                </select>
+            </div>
+
             <div class="form-group">
                 <label>Custom JSON Body (optional):</label>
                 <textarea id="customBody" placeholder='{"student_id": "S12345", "semester": "Spring 2026"}'></textarea>
@@ -155,12 +188,16 @@
                 const semester = document.getElementById('semester').value;
                 const maxCredit = document.getElementById('maxCredit').value;
                 const previousSemester = document.getElementById('previousSemester').value;
+                const maxSets = document.getElementById('maxSets').value; // NEW
+                const preferredTheme = document.getElementById('preferredTheme').value; // NEW
 
                 const body = {
                     student_id: studentId,
                     semester: semester,
                     max_credit_load: parseFloat(maxCredit),
-                    previous_semester: previousSemester 
+                    previous_semester: previousSemester,
+                    max_sets: parseInt(maxSets), // NEW
+                    preferred_theme: preferredTheme // NEW
                 };
 
                 sendRecRequest(body);
@@ -173,12 +210,18 @@
                 const studentId = document.getElementById('studentId').value;
                 const semester = document.getElementById('semester').value;
                 const maxCredit = document.getElementById('maxCredit').value;
+                
+                // Grab the max sets and theme directly from your existing UI
+                const maxSets = document.getElementById('maxSets') ? document.getElementById('maxSets').value : 4;
+                const preferredTheme = document.getElementById('preferredTheme') ? document.getElementById('preferredTheme').value : "";
 
                 const body = {
                     student_id: studentId,
                     semester: semester,
                     max_credit_load: parseFloat(maxCredit),
-                    previous_semester: "ALL" // Trigger the "Overall" logic in backend
+                    previous_semester: "ALL", 
+                    max_sets: parseInt(maxSets),
+                    preferred_theme: preferredTheme // This tells the Go backend to apply the +100 point theme bonus!
                 };
 
                 sendRecRequest(body);
@@ -221,6 +264,40 @@
             } catch (error) { displayError(error.message, 'GET /course-catalog'); }
         }
 
+        async function updateWeights() {
+            try {
+                const goal = document.getElementById('studentGoal').value;
+                let comp = 0.33, int = 0.33, prog = 0.34; // Default to balanced
+
+                // Translate human feelings into algorithm math!
+                if (goal === "speed") { comp = 0.1; int = 0.1; prog = 0.8; }
+                if (goal === "fun")   { comp = 0.1; int = 0.8; prog = 0.1; }
+                if (goal === "safe")  { comp = 0.8; int = 0.1; prog = 0.1; }
+
+                const body = {
+                    competency_weight: comp,
+                    interest_weight: int,
+                    progress_weight: prog
+                };
+
+                const headers = { 'Content-Type': 'application/json' };
+                const token = getJwtToken();
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                // Send the POST request to your new endpoint
+                const response = await fetch(`${getApiUrl()}/weights`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(body)
+                });
+                
+                // Display the success message and the new live weights!
+                displayResponse(await response.json(), response.status, 'POST /weights');
+            } catch (error) { 
+                displayError(error.message, 'POST /weights'); 
+            }
+        }
+
         async function sendCustomRequest() {
             try {
                 const endpoint = document.getElementById('customEndpoint').value;
@@ -241,12 +318,16 @@
                         const semester = document.getElementById('semester').value;
                         const maxCredit = document.getElementById('maxCredit').value;
                         const previousSemester = document.getElementById('previousSemester').value;
+                        const maxSets = document.getElementById('maxSets').value; // NEW
+                        const preferredTheme = document.getElementById('preferredTheme').value; // NEW
 
                         options.body = JSON.stringify({
                             student_id: studentId,
                             semester: semester,
                             max_credit_load: parseFloat(maxCredit),
-                            previous_semester: previousSemester
+                            previous_semester: previousSemester,
+                            max_sets: parseInt(maxSets), // NEW
+                            preferred_theme: preferredTheme // NEW
                         });
                     }
                 } else {
