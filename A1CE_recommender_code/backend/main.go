@@ -558,31 +558,65 @@ func authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// 1. The Request Struct (Must be outside the function)
+type WeightsUpdateRequest struct {
+	Competency float64 `json:"competency_weight,omitempty"`
+	Interest   float64 `json:"interest_weight,omitempty"`
+	Progress   float64 `json:"progress_weight,omitempty"`
+	WeightType string  `json:"weight_type,omitempty"`
+}
+
+// 2. The Function (Notice the opening curly bracket at the end of this line!)
 func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
+
+	// Handle GET request (just show current weights)
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":          "success",
+			"current_weights": CurrentWeights,
+		})
+		return
+	}
+
 	if r.Method != http.MethodPost {
-		sendError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only POST requests allowed", "")
+		sendError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only GET and POST requests allowed", "")
 		return
 	}
 
-	var newWeights ScoringWeights
-	if err := json.NewDecoder(r.Body).Decode(&newWeights); err != nil {
-		sendError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to parse weights", err.Error())
+	var req WeightsUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to parse request body", err.Error())
 		return
 	}
 
-	// Basic validation to ensure they don't send negative weights
-	if newWeights.Competency < 0 || newWeights.Interest < 0 || newWeights.Progress < 0 {
-		sendError(w, http.StatusBadRequest, "INVALID_WEIGHTS", "Weights cannot be negative", "")
-		return
+	// 3. The Smart Logic Translation
+	if req.WeightType != "" {
+		if req.WeightType == "fast_track" {
+			CurrentWeights = ScoringWeights{0.1, 0.1, 0.8}
+		} else if req.WeightType == "explore_passions" {
+			CurrentWeights = ScoringWeights{0.1, 0.8, 0.1}
+		} else if req.WeightType == "play_it_safe" {
+			CurrentWeights = ScoringWeights{0.8, 0.1, 0.1}
+		} else if req.WeightType == "balanced" {
+			CurrentWeights = ScoringWeights{0.33, 0.33, 0.34}
+		}
+	} else {
+		// Otherwise, assume they sent the exact decimal floats
+		CurrentWeights = ScoringWeights{
+			Competency: req.Competency,
+			Interest:   req.Interest,
+			Progress:   req.Progress,
+		}
 	}
 
-	// Update the live server state
-	CurrentWeights = newWeights
+	// 4. Build the success response
+	response := map[string]interface{}{
+		"status":          "success",
+		"message":         "Algorithm scoring weights updated successfully",
+		"current_weights": CurrentWeights,
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(WeightUpdateResponse{
-		Status:  "success",
-		Message: "Algorithm scoring weights updated successfully",
-		Weights: CurrentWeights,
-	})
+	json.NewEncoder(w).Encode(response)
 }
