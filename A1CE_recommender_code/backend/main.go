@@ -22,6 +22,26 @@ var CurrentWeights = ScoringWeights{
 	Progress:   0.3,
 }
 
+// enableCORS attaches the required headers to allow the frontend to talk to this API
+func enableCORS(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Allow the specific frontend domains (or use "*" for testing)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+
+		// Browsers always send a hidden "OPTIONS" request first to check security.
+		// We must catch it and say "OK" before it sends the real POST request.
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Move on to the actual function (like handleRecommendations)
+		next.ServeHTTP(w, r)
+	}
+}
+
 func main() {
 	godotenv.Load() // Loads the A1CE_JWT_KEY variable
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
@@ -53,11 +73,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/recommendations", handleRecommendations)
-	mux.HandleFunc("/api/v1/student-data", handleStudentData)
-	mux.HandleFunc("/api/v1/course-catalog", handleCourseCatalog)
-	mux.HandleFunc("/api/v1/health", handleHealth)
-	mux.HandleFunc("/api/v1/weights", handleWeightsUpdate)
+	mux.HandleFunc("/api/v1/recommendations", enableCORS(handleRecommendations))
+	mux.HandleFunc("/api/v1/student-data", enableCORS(handleStudentData))
+	mux.HandleFunc("/api/v1/course-catalog", enableCORS(handleCourseCatalog))
+	mux.HandleFunc("/api/v1/health", enableCORS(handleHealth))
+	mux.HandleFunc("/api/v1/weights", enableCORS(handleWeightsUpdate))
 
 	handler := corsMiddleware(loggingMiddleware(authMiddleware(mux)))
 
