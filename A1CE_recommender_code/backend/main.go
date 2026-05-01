@@ -472,19 +472,33 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		req.PreferredTheme,
 	)
 
-	warningMsg := ""
-	if req.MaxCreditLoad > 60 {
-		warningMsg = "The student is currently doing a credit overload, make sure to already contact CMKL staff"
+	// Build the official A1CE Response
+	var a1ceRoadmaps []A1CERoadmap
+
+	for i, rm := range roadmaps {
+		// Create a dynamic title based on the theme
+		title := fmt.Sprintf("PERSONALIZED ROADMAP - OPTION %d", i+1)
+		if rm.Theme != "" {
+			title = fmt.Sprintf("PERSONALIZED ROADMAP - %s FOCUS", strings.ToUpper(rm.Theme))
+		}
+
+		a1ceRoadmaps = append(a1ceRoadmaps, A1CERoadmap{
+			ID:              fmt.Sprintf("roadmap-gen-%d", i),
+			Title:           title,
+			Year:            2026,
+			Semester:        req.Semester,
+			Credits:         rm.TotalCredits,
+			AverageScore:    rm.AverageScore,
+			MinScore:        rm.MinScore,
+			MaxScore:        rm.MaxScore,
+			MilestoneGroups: []MilestoneGroup{rm.A1CEMilestoneGroup}, // Attach the nested groups!
+			UniversityCode:  "CMKL",
+		})
 	}
 
-	// --- 3. ATTACH THE WEIGHTS TO THE OUTPUT FOR POSTMAN ---
-	response := RecommendationResponse{
-		StudentID:   req.StudentID,
-		Semester:    req.Semester,
-		WeightsUsed: ScoringWeights{Competency: compW, Interest: intW, Progress: progW},
-		Roadmaps:    roadmaps,
-		Status:      "success",
-		Warning:     warningMsg,
+	response := A1CEResponse{
+		RecommendedRoadmaps: a1ceRoadmaps,
+		Status:              "success",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -568,8 +582,6 @@ type WeightsUpdateRequest struct {
 
 // 2. The Function (Notice the opening curly bracket at the end of this line!)
 func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
-
-	// Handle GET request (just show current weights)
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -590,7 +602,6 @@ func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. The Smart Logic Translation
 	if req.WeightType != "" {
 		if req.WeightType == "fast_track" {
 			CurrentWeights = ScoringWeights{0.1, 0.1, 0.8}
@@ -602,7 +613,6 @@ func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
 			CurrentWeights = ScoringWeights{0.33, 0.33, 0.34}
 		}
 	} else {
-		// Otherwise, assume they sent the exact decimal floats
 		CurrentWeights = ScoringWeights{
 			Competency: req.Competency,
 			Interest:   req.Interest,
@@ -610,7 +620,7 @@ func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Build the success response
+	// Build the success response for the weights endpoint
 	response := map[string]interface{}{
 		"status":          "success",
 		"message":         "Algorithm scoring weights updated successfully",

@@ -1,8 +1,26 @@
-2026/04/27 20:03:26 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/04/27 20:03:26 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
-2026/04/27 20:03:26 ===========================================
-2026/04/27 20:03:26 A1CE Course Recommender API Server
-2026/04/27 20:03:26 ===========================================
-2026/04/27 20:03:26 Server listening on: http://localhost:8080
-2026/04/27 20:04:47 POST /api/v1/weights
-2026/04/27 20:04:47 Completed in 0s
+2026/04/29 21:48:12 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/04/29 21:48:12 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
+2026/04/29 21:48:12 ===========================================
+2026/04/29 21:48:12 A1CE Course Recommender API Server
+2026/04/29 21:48:12 ===========================================
+2026/04/29 21:48:12 Server listening on: http://localhost:8080
+2026/04/29 21:48:41 GET /api/v1/health
+2026/04/29 21:48:41 Completed in 0s
+2026/04/29 21:48:41 GET /api/v1/health
+2026/04/29 21:48:41 Completed in 0s
+2026/04/29 21:48:51 GET /api/v1/health
+2026/04/29 21:48:51 Completed in 0s
+2026/04/29 21:48:53 POST /api/v1/recommendations
+2026/04/29 21:48:55 Scanning 8 semesters for identity codes...
+2026/04/29 21:48:55 History scan complete. Total unique markers: 382
+2026/04/29 21:48:59 Completed in 6.6210797s
+2026/04/29 21:49:27 POST /api/v1/recommendations
+2026/04/29 21:49:28 Scanning 8 semesters for identity codes...
+2026/04/29 21:49:28 History scan complete. Total unique markers: 382
+2026/04/29 21:49:33 Completed in 6.0058018s
+2026/04/29 21:49:38 POST /api/v1/weights
+2026/04/29 21:49:38 Completed in 0s
+2026/04/29 21:49:41 POST /api/v1/recommendations
+2026/04/29 21:49:42 Scanning 8 semesters for identity codes...
+2026/04/29 21:49:42 History scan complete. Total unique markers: 382
+2026/04/29 21:49:47 Completed in 6.2958899s

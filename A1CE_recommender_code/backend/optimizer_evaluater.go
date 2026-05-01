@@ -31,28 +31,21 @@ func OptimizeCourseSets(
 	// 2. The Multi-Roadmap Loop
 	for i := 0; i < maxSets; i++ {
 
-		// Determine the theme for this specific roadmap iteration
 		currentTheme := preferredTheme
 		if currentTheme == "" && i < len(defaultThemes) {
 			currentTheme = defaultThemes[i]
 		}
 
-		// --- THEME SCORING & SORTING ---
-		// Create a fresh copy of the courses for this loop iteration
-		// so we don't permanently mess up the base scores!
 		iterationCourses := make([]RecommendedCourse, len(baseScoredCourses))
 		copy(iterationCourses, baseScoredCourses)
 
-		// Apply the Theme Bonus
 		if currentTheme != "" {
 			keywords := ThemeKeywords[strings.ToLower(currentTheme)]
 			for idx, courseRec := range iterationCourses {
 				course := courseRec.Course
-				// Check if CourseCode or SubdomainID matches the theme keywords
 				for _, word := range keywords {
 					if strings.Contains(strings.ToLower(course.CourseCode), strings.ToLower(word)) ||
 						strings.Contains(strings.ToLower(course.SubdomainID), strings.ToLower(word)) {
-						// Give a massive boost to force it to the top of the selection pool
 						iterationCourses[idx].FitScore += 100.0
 						break
 					}
@@ -60,19 +53,14 @@ func OptimizeCourseSets(
 			}
 		}
 
-		// Re-sort the copied list based on the new themed scores (highest score first)
 		sort.Slice(iterationCourses, func(a, b int) bool {
 			return iterationCourses[a].FitScore > iterationCourses[b].FitScore
 		})
-		// --- VARIETY GENERATOR ---
-		// To ensure roadmaps are actually different if the theme is the same, skip the top 'i' courses
+
 		if len(iterationCourses) > i && preferredTheme != "" {
-			iterationCourses = iterationCourses[i:] // Slice off the top 'i' elements
+			iterationCourses = iterationCourses[i:]
 		}
 
-		// ====================================================================
-		// --- YOUR ORIGINAL SELECTION LOGIC (Unchanged, just uses iterationCourses) ---
-		// ====================================================================
 		var selectedCourses []RecommendedCourse
 		totalCredits := 0.0
 		targetCredits := maxCreditLoad
@@ -80,57 +68,16 @@ func OptimizeCourseSets(
 		subdomainCount := make(map[string]int)
 		maxPerSubdomain := 10
 
-		graduationReqMap := make(map[string]bool)
-		for _, req := range requirements.RequiredCompetencies {
-			graduationReqMap[req] = true
-		}
-
-		priorityCount := 0
-		targetPriorityCount := 3
-
-		isGraduationRequirement := func(c Course) bool { // Assumes 'Course' is your struct name
-			if graduationReqMap[c.CourseCode] {
-				return true
-			}
-			if graduationReqMap[c.CourseID] {
-				return true
-			}
-			for _, taught := range c.TeachesCompetencies {
-				if graduationReqMap[taught] {
-					return true
-				}
-			}
-			return false
-		}
-
-		// Phase 1: Priority Pass
-		for _, courseRec := range iterationCourses {
-			if priorityCount >= targetPriorityCount {
-				break
-			}
-
-			course := courseRec.Course
-
-			if !isGraduationRequirement(course) {
-				continue
-			}
-			if totalCredits+course.CreditHours > targetCredits {
-				continue
-			}
-			if containsRecommendedCourse(selectedCourses, courseRec) {
-				continue
-			}
-
-			selectedCourses = append(selectedCourses, courseRec)
-			totalCredits += course.CreditHours
-			subdomainCount[course.SubdomainID]++
-			priorityCount++
-		}
-
-		// Phase 2: Fill the rest
+		// ====================================================================
+		// THE FIX: Strict Prerequisite Hard Filter & Clean Selection Loop
+		// ====================================================================
 		for _, courseRec := range iterationCourses {
 			course := courseRec.Course
 
+			// If they haven't met the prerequisites, completely skip this course
+			if !CheckPrerequisites(course, studentProfile) {
+				continue
+			}
 			if containsRecommendedCourse(selectedCourses, courseRec) {
 				continue
 			}
@@ -149,14 +96,14 @@ func OptimizeCourseSets(
 				break
 			}
 		}
-		// ====================================================================
 
-		// --- PACKAGE THE ROADMAP ---
-		// --- PACKAGE THE ROADMAP ---
+		// ====================================================================
+		// --- PACKAGE THE ROADMAP (A1CE Nested JSON Format) ---
+		// ====================================================================
 		var sumScore, minScore, maxScore, avgScore float64
+		var milestones []Milestone
 
 		if len(selectedCourses) > 0 {
-			// Initialize min and max with the first course's score
 			minScore = selectedCourses[0].FitScore
 			maxScore = selectedCourses[0].FitScore
 
@@ -168,18 +115,40 @@ func OptimizeCourseSets(
 				if c.FitScore > maxScore {
 					maxScore = c.FitScore
 				}
+
+				// Map your 'Course' data into the A1CE 'Milestone' shape
+				milestones = append(milestones, Milestone{
+					ID:              c.Course.CourseID,
+					TemplateID:      c.Course.TemplateID, // <--- ADD THIS LINE!
+					Title:           c.Course.CourseName,
+					CompetencyTitle: c.Course.CourseName,
+					CompetencyCode:  c.Course.CourseCode,
+					Credits:         int(c.Course.CreditHours),
+					SubdomainTitle:  c.Course.SubdomainID,
+					FitScore:        c.FitScore,
+					Reason:          c.Reason,
+				})
 			}
 			avgScore = sumScore / float64(len(selectedCourses))
 		}
 
-		// Package the roadmap using the new metrics
+		// Wrap the milestones in a MilestoneGroup (as A1CE expects)
+		group := MilestoneGroup{
+			ID:         "group-auto-gen",
+			Title:      "Personalized Recommendations",
+			MaxCredits: int(totalCredits),
+			Milestones: milestones,
+		}
+
+		// Package the final Roadmap struct
 		roadmaps = append(roadmaps, CourseSet{
-			Theme:        currentTheme,
-			Courses:      selectedCourses,
-			AverageScore: avgScore,
-			MinScore:     minScore,
-			MaxScore:     maxScore,
-			TotalCredits: int(totalCredits), // cast to int to match your struct
+			Theme:              currentTheme,
+			Courses:            selectedCourses,
+			AverageScore:       avgScore,
+			MinScore:           minScore,
+			MaxScore:           maxScore,
+			TotalCredits:       int(totalCredits),
+			A1CEMilestoneGroup: group, // Attach the nested structure!
 		})
 	}
 
