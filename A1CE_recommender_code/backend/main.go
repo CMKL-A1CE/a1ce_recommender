@@ -22,22 +22,35 @@ var CurrentWeights = ScoringWeights{
 	Progress:   0.3,
 }
 
-// enableCORS attaches the required headers to allow the frontend to talk to this API
+// enableCORS securely handles Cross-Origin requests, including those with Authorization tokens
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Allow the specific frontend domains (or use "*" for testing)
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		// 1. Get the origin of the frontend making the request
+		origin := r.Header.Get("Origin")
 
-		// Browsers always send a hidden "OPTIONS" request first to check security.
-		// We must catch it and say "OK" before it sends the real POST request.
-		if r.Method == "OPTIONS" {
+		// 2. Check if the origin is one of our allowed websites.
+		// (Add the local frontend port, usually 3000 or 8080)
+		if origin == "https://a1ce-test.cmkl.ac.th" || origin == "http://localhost:3000" || origin == "http://localhost:8080" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			// Fallback (Browsers will reject this if credentials are sent, but Postman allows it)
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+
+		// 3. CRITICAL FIX: Explicitly allow credentials (Tokens, Cookies, etc.)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		// 4. Standard Allowed Methods and Headers
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Origin")
+
+		// 5. Catch the Preflight "OPTIONS" request
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
-		// Move on to the actual function (like handleRecommendations)
+		// Move on to the actual function
 		next.ServeHTTP(w, r)
 	}
 }
