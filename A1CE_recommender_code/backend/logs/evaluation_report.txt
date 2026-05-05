@@ -1,30 +1,40 @@
-2026/02/25 14:47:55 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/02/25 14:47:55 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
-2026/02/25 14:47:55 ===========================================
-2026/02/25 14:47:55 A1CE Course Recommender API Server
-2026/02/25 14:47:55 ===========================================
-2026/02/25 14:47:55 Server listening on: http://localhost:8080
-2026/02/25 14:48:18 GET /api/v1/health
-2026/02/25 14:48:18 Completed in 0s
-2026/02/25 14:48:18 GET /api/v1/health
-2026/02/25 14:48:18 Completed in 0s
-2026/02/25 14:48:20 GET /api/v1/student-data
-2026/02/25 14:48:23 Completed in 2.6169167s
-2026/02/25 14:48:44 GET /api/v1/course-catalog
-2026/02/25 14:48:54 Completed in 9.4916988s
-2026/02/25 14:48:54 GET /api/v1/course-catalog
-2026/02/25 14:48:57 POST /api/v1/recommendations
-2026/02/25 14:48:58 Scanning 8 semesters for identity codes...
-2026/02/25 14:48:59 History scan complete. Total unique markers: 383
-2026/02/25 14:49:03 Completed in 9.3033574s
-2026/02/25 14:49:08 Completed in 10.1104267s
-2026/02/25 14:49:08 GET /api/v1/student-data
-2026/02/25 14:49:09 Completed in 787.7864ms
-2026/02/25 14:49:16 POST /api/v1/recommendations
-2026/02/25 14:49:17 Scanning 8 semesters for identity codes...
-2026/02/25 14:49:17 History scan complete. Total unique markers: 383
-2026/02/25 14:49:27 Completed in 10.6652711s
-2026/02/25 14:52:51 GET /api/v1/course-catalog
-2026/02/25 14:52:57 Completed in 6.3897714s
-2026/02/25 14:53:12 GET /api/v1/course-catalog
-2026/02/25 14:53:18 Completed in 5.7946096s
+2026/03/02 13:56:25 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/03/02 13:56:25 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
+2026/03/02 13:56:25 ===========================================
+2026/03/02 13:56:25 A1CE Course Recommender API Server
+2026/03/02 13:56:25 ===========================================
+2026/03/02 13:56:25 Server listening on: http://localhost:8080
+2026/03/02 13:56:28 GET /
+2026/03/02 13:56:28 Completed in 0s
+2026/03/02 13:56:45 GET /HNAP1/
+2026/03/02 13:56:45 Completed in 0s
+2026/03/02 13:56:47 GET /
+2026/03/02 13:56:47 Completed in 0s
+2026/03/02 13:56:47 GET /loginMsg.js
+2026/03/02 13:56:47 Completed in 0s
+2026/03/02 13:56:47 GET /cgi/get.cgi
+2026/03/02 13:56:47 Completed in 0s
+2026/03/02 14:16:16 GET /api/v1/health
+2026/03/02 14:16:16 Completed in 0s
+2026/03/02 14:16:16 GET /api/v1/health
+2026/03/02 14:16:16 Completed in 0s
+2026/03/02 14:16:19 GET /api/v1/student-data
+2026/03/02 14:16:21 Completed in 1.9695542s
+2026/03/02 14:16:22 GET /api/v1/course-catalog
+2026/03/02 14:16:26 Completed in 3.3682818s
+2026/03/02 14:27:05 POST /api/v1/recommendations
+2026/03/02 14:27:07 Scanning 8 semesters for identity codes...
+2026/03/02 14:27:07 History scan complete. Total unique markers: 383
+2026/03/02 14:27:10 Completed in 4.7238444s
+2026/03/02 14:35:24 POST /api/v1/recommendations
+2026/03/02 14:35:26 Scanning 8 semesters for identity codes...
+2026/03/02 14:35:26 History scan complete. Total unique markers: 383
+2026/03/02 14:35:30 Completed in 5.8940815s
+2026/03/02 14:48:07 POST /api/v1/recommendations
+2026/03/02 14:48:09 Scanning 8 semesters for identity codes...
+2026/03/02 14:48:09 History scan complete. Total unique markers: 383
+2026/03/02 14:48:12 Completed in 4.9477926s
+2026/03/02 15:02:31 POST /api/v1/recommendations
+2026/03/02 15:02:33 Scanning 8 semesters for identity codes...
+2026/03/02 15:02:33 History scan complete. Total unique markers: 383
+2026/03/02 15:02:36 Completed in 4.5954367s
