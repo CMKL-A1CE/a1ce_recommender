@@ -41,16 +41,16 @@ func (c *A1CEClient) GenerateInternalToken() (string, error) {
 		"family_name": "Recommendations",
 		"locale":      "",
 		"roles":       []string{"User", "Admin", "Curriculum Designer"},
-		"user_id":     "48646235-c3f0-48a4-b28e-126fca224b96",
+		"user_id":     os.Getenv("M2M_USER_ID"),
 		"identities": []map[string]interface{}{
 			{
 				// Badge 1: Admin (For Student Data)
-				"id":   os.Getenv("M2M_ADMIN_ID"), // "7f9d2735-f811-431d-b98c-02639dd992d5"
+				"id":   os.Getenv("M2M_ADMIN_ID"),
 				"role": "Admin",
 			},
 			{
 				// Badge 2: Curriculum Designer (For Course Catalog)
-				"id":   "8059fdb1-8122-4c06-b7a8-824621426975",
+				"id":   os.Getenv("M2M_CURRICULUM_DESIGNER_ID"),
 				"role": "Curriculum Designer",
 			},
 		},
@@ -70,7 +70,7 @@ func (c *A1CEClient) GenerateInternalToken() (string, error) {
 
 func NewA1CEClient() *A1CEClient {
 	client := &A1CEClient{
-		BaseURL:          "https://a1ce.cmkl.ac.th/api",
+		BaseURL:          os.Getenv("A1CE_BACKEND_API_BASE"),
 		HTTPClient:       &http.Client{Timeout: 10 * time.Second},
 		CourseIdentities: make(map[string]string),
 	}

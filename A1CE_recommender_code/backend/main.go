@@ -15,6 +15,46 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Default starting weights
+var CurrentWeights = ScoringWeights{
+	Competency: 0.4,
+	Interest:   0.3,
+	Progress:   0.3,
+}
+
+// enableCORS securely handles Cross-Origin requests, including those with Authorization tokens
+func enableCORS(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Get the origin of the frontend making the request
+		origin := r.Header.Get("Origin")
+
+		// 2. Check if the origin is one of our allowed websites.
+		// (Add the local frontend port, usually 3000 or 8080)
+		if origin == "https://a1ce-test.cmkl.ac.th" || origin == "http://localhost:3000" || origin == "http://localhost:8080" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			// Fallback (Browsers will reject this if credentials are sent, but Postman allows it)
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+
+		// 3. CRITICAL FIX: Explicitly allow credentials (Tokens, Cookies, etc.)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		// 4. Standard Allowed Methods and Headers
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Origin")
+
+		// 5. Catch the Preflight "OPTIONS" request
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Move on to the actual function
+		next.ServeHTTP(w, r)
+	}
+}
+
 func main() {
 	godotenv.Load() // Loads the A1CE_JWT_KEY variable
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
@@ -46,10 +86,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/recommendations", handleRecommendations)
-	mux.HandleFunc("/api/v1/student-data", handleStudentData)
-	mux.HandleFunc("/api/v1/course-catalog", handleCourseCatalog)
-	mux.HandleFunc("/api/v1/health", handleHealth)
+	mux.HandleFunc("/api/v1/recommendations", enableCORS(handleRecommendations))
+	mux.HandleFunc("/api/v1/student-data", enableCORS(handleStudentData))
+	mux.HandleFunc("/api/v1/course-catalog", enableCORS(handleCourseCatalog))
+	mux.HandleFunc("/api/v1/health", enableCORS(handleHealth))
+	mux.HandleFunc("/api/v1/weights", enableCORS(handleWeightsUpdate))
 
 	handler := corsMiddleware(loggingMiddleware(authMiddleware(mux)))
 
@@ -258,6 +299,18 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- 1. SET UP DYNAMIC WEIGHTS ---
+	compW, intW, progW := CurrentWeights.Competency, CurrentWeights.Interest, CurrentWeights.Progress
+	if req.WeightType == "fast_track" {
+		compW, intW, progW = 0.1, 0.1, 0.8
+	} else if req.WeightType == "explore_passions" {
+		compW, intW, progW = 0.1, 0.8, 0.1
+	} else if req.WeightType == "play_it_safe" {
+		compW, intW, progW = 0.8, 0.1, 0.1
+	} else if req.WeightType == "balanced" {
+		compW, intW, progW = 0.33, 0.33, 0.34
+	}
+
 	client := NewA1CEClient()
 	client.JWTToken = getAuthorzationCred(r, "token")
 
@@ -337,8 +390,8 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	isCurriculumReq := make(map[string]bool)
 	rules, _ := loadCurriculumRules("curriculum_rules.json")
 	if rules != nil {
-		for code, req := range rules {
-			if req {
+		for code, rReq := range rules {
+			if rReq {
 				isCurriculumReq[normalizeCode(code)] = true
 			}
 		}
@@ -381,7 +434,23 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		compScore := CalculateCompetencyMatchScore(course, profile)
 		interestScore := CalculateInterestScore(course, profile)
 		progScore := CalculateProgramProgressScore(course, profile, requirements)
-		fitScore := 0.2*compScore + 0.6*interestScore + 0.2*progScore
+
+		// --- 2. APPLY DYNAMIC WEIGHTS TO THE MATH ---
+		fitScore := (compW * compScore) + (intW * interestScore) + (progW * progScore)
+
+		// Determine the dominant factor for the Reason string
+		reason := ""
+		weightedComp := compW * compScore
+		weightedInt := intW * interestScore
+		weightedProg := progW * progScore
+
+		if weightedComp >= weightedInt && weightedComp >= weightedProg {
+			reason = fmt.Sprintf("Strong Competency Match (Score: %.2f)", compScore)
+		} else if weightedInt >= weightedComp && weightedInt >= weightedProg {
+			reason = fmt.Sprintf("Strong Interest Alignment (Score: %.2f)", interestScore)
+		} else {
+			reason = fmt.Sprintf("High Program Progress Value (Score: %.2f)", progScore)
+		}
 
 		displayCourse := CourseOutput{
 			CourseID:             course.CourseID,
@@ -415,7 +484,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			CompetencyMatchScore:   compScore,
 			InterestAlignmentScore: interestScore,
 			ProgramProgressScore:   progScore,
-			Reason:                 fmt.Sprintf("Interest Score: %.2f", interestScore),
+			Reason:                 reason,
 		})
 	}
 
@@ -426,30 +495,43 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	recommendedSet := OptimizeCourseSet(scoredCourses, profile, requirements, req.MaxCreditLoad)
 
-	totalCredits := 0.0
-	for _, r := range recommendedSet {
-		totalCredits += r.Course.CreditHours
+	roadmaps := OptimizeCourseSets(
+		scoredCourses,
+		profile,
+		requirements,
+		req.MaxCreditLoad,
+		req.MaxSets,
+		req.PreferredTheme,
+	)
+
+	// Build the official A1CE Response
+	var a1ceRoadmaps []A1CERoadmap
+
+	for i, rm := range roadmaps {
+		// Create a dynamic title based on the theme
+		title := fmt.Sprintf("PERSONALIZED ROADMAP - OPTION %d", i+1)
+		if rm.Theme != "" {
+			title = fmt.Sprintf("PERSONALIZED ROADMAP - %s FOCUS", strings.ToUpper(rm.Theme))
+		}
+
+		a1ceRoadmaps = append(a1ceRoadmaps, A1CERoadmap{
+			ID:              fmt.Sprintf("roadmap-gen-%d", i),
+			Title:           title,
+			Year:            2026,
+			Semester:        req.Semester,
+			Credits:         rm.TotalCredits,
+			AverageScore:    rm.AverageScore,
+			MinScore:        rm.MinScore,
+			MaxScore:        rm.MaxScore,
+			MilestoneGroups: []MilestoneGroup{rm.A1CEMilestoneGroup}, // Attach the nested groups!
+			UniversityCode:  "CMKL",
+		})
 	}
 
-	warningMsg := ""
-	if req.MaxCreditLoad > 60 {
-		warningMsg = "The student is currently doing a credit overload, make sure to already contact CMKL staff"
-	}
-
-	response := RecommendationSet{
-		StudentID:      req.StudentID,
-		Semester:       req.Semester,
-		RecommendedSet: recommendedSet,
-		TotalCredits:   totalCredits,
-		Metrics:        EvaluationMetrics{GoodnessScore: 0.85},
-		Metadata: RecommendationMetadata{
-			GenerationTimestamp: time.Now(),
-			AlgorithmVersion:    "1.31-Identity-JSON-Label",
-		},
-		Status:  "success",
-		Warning: warningMsg,
+	response := A1CEResponse{
+		RecommendedRoadmaps: a1ceRoadmaps,
+		Status:              "success",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -521,4 +603,63 @@ func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
 	})
+}
+
+// 1. The Request Struct (Must be outside the function)
+type WeightsUpdateRequest struct {
+	Competency float64 `json:"competency_weight,omitempty"`
+	Interest   float64 `json:"interest_weight,omitempty"`
+	Progress   float64 `json:"progress_weight,omitempty"`
+	WeightType string  `json:"weight_type,omitempty"`
+}
+
+// 2. The Function (Notice the opening curly bracket at the end of this line!)
+func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":          "success",
+			"current_weights": CurrentWeights,
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		sendError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Only GET and POST requests allowed", "")
+		return
+	}
+
+	var req WeightsUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to parse request body", err.Error())
+		return
+	}
+
+	if req.WeightType != "" {
+		if req.WeightType == "fast_track" {
+			CurrentWeights = ScoringWeights{0.1, 0.1, 0.8}
+		} else if req.WeightType == "explore_passions" {
+			CurrentWeights = ScoringWeights{0.1, 0.8, 0.1}
+		} else if req.WeightType == "play_it_safe" {
+			CurrentWeights = ScoringWeights{0.8, 0.1, 0.1}
+		} else if req.WeightType == "balanced" {
+			CurrentWeights = ScoringWeights{0.33, 0.33, 0.34}
+		}
+	} else {
+		CurrentWeights = ScoringWeights{
+			Competency: req.Competency,
+			Interest:   req.Interest,
+			Progress:   req.Progress,
+		}
+	}
+
+	// Build the success response for the weights endpoint
+	response := map[string]interface{}{
+		"status":          "success",
+		"message":         "Algorithm scoring weights updated successfully",
+		"current_weights": CurrentWeights,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

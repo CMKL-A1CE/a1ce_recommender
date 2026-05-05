@@ -1,6 +1,8 @@
 package main
 
-import "time"
+import (
+	"time"
+)
 
 // Request structures
 type RecommendationRequest struct {
@@ -10,6 +12,8 @@ type RecommendationRequest struct {
 	MaxSets          int                    `json:"max_sets"`
 	Constraints      *RecommendationFilters `json:"constraints,omitempty"`
 	PreviousSemester string                 `json:"previous_semester,omitempty"`
+	PreferredTheme   string                 `json:"preferred_theme"`
+	WeightType       string                 `json:"weight_type,omitempty"`
 }
 
 type RecommendationFilters struct {
@@ -152,4 +156,110 @@ type CourseCatalogResponse struct {
 	CurriculumVersion int      `json:"curriculum_version"`
 	Courses           []Course `json:"courses"`
 	TotalCourses      int      `json:"total_courses"`
+}
+
+type CourseSet struct {
+	Theme              string              `json:"theme"`
+	Courses            []RecommendedCourse `json:"courses"`
+	AverageScore       float64             `json:"average_score"`
+	MinScore           float64             `json:"min_score"`
+	MaxScore           float64             `json:"max_score"`
+	TotalCredits       int                 `json:"total_credits"`
+	A1CEMilestoneGroup MilestoneGroup      `json:"-"`
+}
+
+var ThemeKeywords = map[string][]string{
+	"code":     {"Programming", "Software", "Data", "Algorithm", "Computer", "Network"},
+	"science":  {"Physics", "Math", "Biology", "Chemistry", "Calculus", "Science"},
+	"games":    {"Game", "Interactive", "Graphics", "Strategy", "Survival", "Engine"},
+	"business": {"Business", "Management", "Economics", "Marketing", "Entrepreneurship"},
+}
+
+type RecommendationResponse struct {
+	StudentID   string         `json:"student_id"`
+	Semester    string         `json:"semester"`
+	Roadmaps    []CourseSet    `json:"roadmaps"`
+	Status      string         `json:"status"`
+	Warning     string         `json:"warning"`
+	WeightsUsed ScoringWeights `json:"weights_used"`
+}
+
+// Holds the current live weights for the algorithm
+type ScoringWeights struct {
+	Competency float64 `json:"competency_weight"`
+	Interest   float64 `json:"interest_weight"`
+	Progress   float64 `json:"progress_weight"`
+}
+
+// The response when someone successfully updates the weights
+type WeightUpdateResponse struct {
+	Status  string         `json:"status"`
+	Message string         `json:"message"`
+	Weights ScoringWeights `json:"current_weights"`
+}
+
+// --- A1CE Official API Response Schemas ---
+
+type A1CEResponse struct {
+	RecommendedRoadmaps []A1CERoadmap `json:"recommended_roadmaps"`
+	Status              string        `json:"status"`
+}
+
+type A1CERoadmap struct {
+	ID                string           `json:"id"`
+	Title             string           `json:"title"`
+	Year              int              `json:"year"`
+	Semester          string           `json:"semester"`
+	Credits           int              `json:"credits"`
+	AverageScore      float64          `json:"average_score"` // Our custom field
+	MinScore          float64          `json:"min_score"`     // Our custom field
+	MaxScore          float64          `json:"max_score"`     // Our custom field
+	TermOrdinal       int              `json:"term_ordinal"`
+	CurriculumVersion int              `json:"curriculum_version"`
+	MilestoneGroups   []MilestoneGroup `json:"milestone_groups"`
+	UniversityCode    string           `json:"university_code"`
+	StudyTrack        int              `json:"study_track"`
+}
+
+type MilestoneGroup struct {
+	ID         string      `json:"id"`
+	Title      string      `json:"title"`
+	MaxCredits int         `json:"max_credits"`
+	Milestones []Milestone `json:"milestones"`
+}
+
+type Milestone struct {
+	ID                   string   `json:"id"`
+	Title                string   `json:"title"`
+	Description          string   `json:"description"`
+	TemplateID           string   `json:"template_id"`
+	TemplatePillarID     string   `json:"template_pillar_id"`
+	PillarTitle          string   `json:"pillar_title"`
+	SubdomainTitle       string   `json:"subdomain_title"`
+	CompetencyTitle      string   `json:"competency_title"`
+	CompetencyCode       string   `json:"competency_code"`
+	Required             bool     `json:"required"`
+	StartDate            string   `json:"start_date"`
+	TargetCompletionDate string   `json:"target_completion_date"`
+	Credits              int      `json:"credits"`
+	IsAttendanceRequired bool     `json:"is_attendance_required"`
+	Skills               []Skill  `json:"skills"`
+	Graphics             Graphics `json:"graphics"`
+	FitScore             float64  `json:"fit_score"` // Our custom field
+	Reason               string   `json:"reason"`    // Our custom field
+}
+
+type Skill struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	SkillCode   string `json:"skill_code"`
+	Required    bool   `json:"required"`
+}
+
+type Graphics struct {
+	IconBg      string `json:"iconbg"`
+	BorderColor string `json:"bordercolor"`
+	Icon        string `json:"icon"`
+	IconShadow  string `json:"iconshadow"`
 }
