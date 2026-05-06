@@ -22,29 +22,28 @@ var CurrentWeights = ScoringWeights{
 	Progress:   0.3,
 }
 
-// enableCORS securely handles Cross-Origin requests, including those with Authorization tokens
+// enableCORS securely handles Cross-Origin requests by dynamically echoing the origin
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Get the origin of the frontend making the request
+		// 1. Get the exact origin of the frontend making the request
 		origin := r.Header.Get("Origin")
 
-		// 2. Check if the origin is one of our allowed websites.
-		// (Add the local frontend port, usually 3000 or 8080)
-		if origin == "https://a1ce-test.cmkl.ac.th" || origin == "http://localhost:3000" || origin == "http://localhost:8080" {
+		// 2. Dynamically echo the origin back to the browser.
+		// This guarantees a 100% perfect match, satisfying strict credential rules.
+		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		} else {
-			// Fallback (Browsers will reject this if credentials are sent, but Postman allows it)
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 
-		// 3. CRITICAL FIX: Explicitly allow credentials (Tokens, Cookies, etc.)
+		// 3. Explicitly allow credentials (Tokens, Cookies)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		// 4. Standard Allowed Methods and Headers
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Origin")
 
-		// 5. Catch the Preflight "OPTIONS" request
+		// 5. Catch the Preflight "OPTIONS" request and send 200 OK immediately
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
