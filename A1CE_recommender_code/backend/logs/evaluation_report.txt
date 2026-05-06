@@ -1,10 +1,10 @@
-2026/05/06 11:18:28 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/05/06 11:18:28 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
-2026/05/06 11:18:28 ===========================================
-2026/05/06 11:18:28 A1CE Course Recommender API Server
-2026/05/06 11:18:28 ===========================================
-2026/05/06 11:18:28 Server listening on: http://localhost:8080
-2026/05/06 11:18:52 POST /api/v1/recommendations
-2026/05/06 11:18:54 Scanning 8 semesters for identity codes...
-2026/05/06 11:18:54 History scan complete. Total unique markers: 382
-2026/05/06 11:18:57 Completed in 5.3396945s
+2026/05/06 11:23:37 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/05/06 11:23:37 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
+2026/05/06 11:23:37 ===========================================
+2026/05/06 11:23:37 A1CE Course Recommender API Server
+2026/05/06 11:23:37 ===========================================
+2026/05/06 11:23:37 Server listening on: http://localhost:8080
+2026/05/06 11:23:46 POST /api/v1/recommendations
+2026/05/06 11:23:48 Scanning 8 semesters for identity codes...
+2026/05/06 11:23:48 History scan complete. Total unique markers: 382
+2026/05/06 11:23:52 Completed in 5.4959751s
