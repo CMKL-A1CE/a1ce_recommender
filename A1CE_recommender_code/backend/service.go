@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"time"
 )
@@ -61,8 +62,25 @@ func (s *RecommenderService) GenerateRecommendations(req *RecommendationRequest)
 	scoredCourses := s.scoreCourses(candidateCourses, studentProfile, requirements)
 
 	// Step 7: Optimize course set selection
-	// Call the new Phase 2 function, ask for 1 default roadmap, and extract its courses
-	roadmaps := OptimizeCourseSets(scoredCourses, studentProfile, requirements, req.MaxCreditLoad, 1, "")
+	// Fetch the graphics map using the client's token before passing it to the optimizer
+	graphicsMap, err := fetchPillarGraphics(os.Getenv("M2M_STAGING_API_BASE"), s.a1ceClient.JWTToken)
+	if err != nil || graphicsMap == nil {
+		// Fallback to an empty map so the app doesn't crash if the API fails
+		graphicsMap = make(map[string]Graphics)
+	}
+
+	// Call the new Phase 2 function, passing the graphicsMap as the 7th and final argument
+	roadmaps := OptimizeCourseSets(
+		scoredCourses,
+		studentProfile,
+		requirements,
+		req.MaxCreditLoad,
+		1,
+		"",
+		graphicsMap,
+		os.Getenv("M2M_STAGING_API_BASE"),
+		s.a1ceClient.JWTToken,
+	)
 
 	var recommendedSet []RecommendedCourse
 	if len(roadmaps) > 0 {

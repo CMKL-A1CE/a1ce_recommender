@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -495,6 +496,13 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 1. Fetch the graphics right before calling the optimizer
+	graphicsMap, _ := fetchPillarGraphics(os.Getenv("M2M_STAGING_API_BASE"), client.JWTToken)
+	if graphicsMap == nil {
+		graphicsMap = make(map[string]Graphics)
+	}
+
+	// 2. Pass the map into the optimizer
 	roadmaps := OptimizeCourseSets(
 		scoredCourses,
 		profile,
@@ -502,6 +510,9 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		req.MaxCreditLoad,
 		req.MaxSets,
 		req.PreferredTheme,
+		graphicsMap,                       // <--- ADD THE MAP HERE!
+		os.Getenv("M2M_STAGING_API_BASE"), // <--- ADD THIS
+		client.JWTToken,
 	)
 
 	// Build the official A1CE Response
@@ -512,6 +523,19 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		title := fmt.Sprintf("PERSONALIZED ROADMAP - OPTION %d", i+1)
 		if rm.Theme != "" {
 			title = fmt.Sprintf("PERSONALIZED ROADMAP - %s FOCUS", strings.ToUpper(rm.Theme))
+		}
+
+		// 2. Loop through the Milestones in this specific roadmap to assign colors
+		for mIndex, milestone := range rm.A1CEMilestoneGroup.Milestones {
+			prefix := ""
+			if len(milestone.CompetencyCode) >= 3 {
+				prefix = strings.ToUpper(milestone.CompetencyCode[:3])
+			}
+
+			// If we have the color for this prefix, assign it directly!
+			if graphics, exists := graphicsMap[prefix]; exists {
+				rm.A1CEMilestoneGroup.Milestones[mIndex].Graphics = graphics
+			}
 		}
 
 		a1ceRoadmaps = append(a1ceRoadmaps, A1CERoadmap{
@@ -527,6 +551,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			UniversityCode:  "CMKL",
 		})
 	}
+	// --- END OF NEW CODE ---
 
 	response := A1CEResponse{
 		RecommendedRoadmaps: a1ceRoadmaps,
@@ -661,4 +686,85 @@ func handleWeightsUpdate(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// fetchPillarGraphics creates a lookup map of Prefix (e.g., "AIC") -> Graphics struct
+func fetchPillarGraphics(baseURL string, token string) (map[string]Graphics, error) {
+	req, err := http.NewRequest("GET", baseURL+"/api/pillars", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Pass the user's authorization token to access the endpoint
+	req.Header.Set("Authorization", token)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var pillars []PillarInfo
+	if err := json.NewDecoder(resp.Body).Decode(&pillars); err != nil {
+		return nil, err
+	}
+
+	// Build the dictionary: Map the 3-letter prefix to the full Graphics object
+	graphicsMap := make(map[string]Graphics)
+	for _, p := range pillars {
+		prefix := strings.ToUpper(p.PillarPrefix)
+		graphicsMap[prefix] = p.PillarGraphics
+	}
+
+	return graphicsMap, nil
+}
+
+// fetchCompetencyDates calls the /detail API to grab the start and end dates
+func fetchCompetencyDates(baseURL string, code string, semester string, token string) (string, string) {
+	if baseURL == "" {
+		log.Println("(!) ERROR: baseURL is empty. Check your .env file!")
+		return "", ""
+	}
+
+	encodedSemester := url.QueryEscape(semester)
+	apiURL := fmt.Sprintf("%s/api/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=7&semester_name=%s", baseURL, code, encodedSemester)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		log.Printf("(!) Failed to create request for %s: %v", code, err)
+		return "", ""
+	}
+
+	// --- ADD THE HEADERS ---
+	req.Header.Set("Authorization", "Bearer "+token) // Ensure 'Bearer ' is included if the API requires it
+	req.Header.Set("Content-Type", "application/json")
+
+	// --- INITIALIZE THE CLIENT (This fixes the undefined error) ---
+	client := &http.Client{
+		Timeout: 10 * time.Second, // Good practice to prevent hanging
+	}
+
+	// --- EXECUTE ---
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("(!) Request failed for %s: %v", code, err)
+		return "", ""
+	}
+	defer resp.Body.Close()
+
+	// Check if the API is actually saying OK
+	if resp.StatusCode != 200 {
+		log.Printf("(!) API returned error %d for course %s", resp.StatusCode, code)
+		return "", ""
+	}
+
+	var detail CompetencyDetailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		log.Printf("(!) Failed to decode JSON for %s: %v", code, err)
+		return "", ""
+	}
+
+	// Return the two extracted dates
+	return detail.Competency.SemesterDetail.StartDate, detail.Competency.SemesterDetail.EndDate
 }

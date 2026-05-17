@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"os"
 	"sort"
 	"strings"
 	// any other imports you have here
@@ -15,6 +16,9 @@ func OptimizeCourseSets(
 	maxCreditLoad float64,
 	maxSets int,
 	preferredTheme string,
+	graphicsMap map[string]Graphics, // <--- ADD THIS NEW PARAMETER!
+	baseURL string, // <--- NEW!
+	token string, // <--- NEW!
 ) []CourseSet {
 
 	// 1. Cap the number of roadmaps requested (Max 4)
@@ -109,24 +113,39 @@ func OptimizeCourseSets(
 
 			for _, c := range selectedCourses {
 				sumScore += c.FitScore
-				if c.FitScore < minScore {
-					minScore = c.FitScore
+				// ... min/max logic ...
+
+				// --- 1. GRAB THE GRAPHICS (Already done!) ---
+				prefix := ""
+				if len(c.Course.CourseCode) >= 3 {
+					prefix = strings.ToUpper(c.Course.CourseCode[:3])
 				}
-				if c.FitScore > maxScore {
-					maxScore = c.FitScore
+				var pillarGraphics Graphics
+				if g, exists := graphicsMap[prefix]; exists {
+					pillarGraphics = g
+				} else {
+					pillarGraphics = Graphics{IconBg: "#f3f4f6", BorderColor: "#9ca3af"}
 				}
 
-				// Map your 'Course' data into the A1CE 'Milestone' shape
+				// --- 2. GRAB THE DATES (NEW!) ---
+				// Call our new helper to fetch the exact dates for this specific course!
+				startDate, endDate := fetchCompetencyDates(os.Getenv("M2M_STAGING_API_BASE"), c.Course.CourseCode, "Spring 2026", "YOUR_TOKEN_HERE")
+				// Note: You will need to pass the real student token and semester down into this function
+
+				// --- 3. BUILD THE MILESTONE ---
 				milestones = append(milestones, Milestone{
-					ID:              c.Course.CourseID,
-					TemplateID:      c.Course.TemplateID, // <--- ADD THIS LINE!
-					Title:           c.Course.CourseName,
-					CompetencyTitle: c.Course.CourseName,
-					CompetencyCode:  c.Course.CourseCode,
-					Credits:         int(c.Course.CreditHours),
-					SubdomainTitle:  c.Course.SubdomainID,
-					FitScore:        c.FitScore,
-					Reason:          c.Reason,
+					ID:                   c.Course.CourseID,
+					TemplateID:           c.Course.TemplateID,
+					Title:                c.Course.CourseName,
+					CompetencyTitle:      c.Course.CourseName,
+					CompetencyCode:       c.Course.CourseCode,
+					Credits:              int(c.Course.CreditHours),
+					SubdomainTitle:       c.Course.SubdomainID,
+					FitScore:             c.FitScore,
+					Reason:               c.Reason,
+					Graphics:             pillarGraphics,
+					StartDate:            startDate, // <--- INJECTED DATE!
+					TargetCompletionDate: endDate,   // <--- INJECTED DATE!
 				})
 			}
 			avgScore = sumScore / float64(len(selectedCourses))

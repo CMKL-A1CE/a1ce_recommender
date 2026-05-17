@@ -263,3 +263,26 @@ type Graphics struct {
 	Icon        string `json:"icon"`
 	IconShadow  string `json:"iconshadow"`
 }
+
+type PillarInfo struct {
+	Id             string        `json:"id"`
+	DbId           string        `json:"-"` // Ignore for JSON parsing
+	Title          string        `json:"title"`
+	Description    string        `json:"description"`
+	PillarCode     string        `json:"code"`
+	PillarPrefix   string        `json:"prefix"`
+	IsCore         bool          `json:"is_core"`
+	Ordinal        int           `json:"ordinal"`
+	Subdomains     []interface{} `json:"subdomains"` // Catch-all for subdomains
+	PillarGraphics Graphics      `json:"graphics"`   // Reusing your existing Graphics struct!
+}
+
+// --- API Response Schemas for fetching Dates ---
+type CompetencyDetailResponse struct {
+	Competency struct {
+		SemesterDetail struct {
+			StartDate string `json:"start_date"`
+			EndDate   string `json:"end_date"`
+		} `json:"semester_detail"`
+	} `json:"competency"`
+}
