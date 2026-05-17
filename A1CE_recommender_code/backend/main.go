@@ -24,27 +24,58 @@ var CurrentWeights = ScoringWeights{
 }
 
 // enableCORS securely handles Cross-Origin requests by dynamically echoing the origin
+// func enableCORS(next http.HandlerFunc) http.HandlerFunc {
+// 	return func(w http.ResponseWriter, r *http.Request) {
+// 		// 1. Get the exact origin of the frontend making the request
+// 		origin := r.Header.Get("Origin")
+
+// 		// 2. Dynamically echo the origin back to the browser.
+// 		// This guarantees a 100% perfect match, satisfying strict credential rules.
+// 		if origin != "" {
+// 			w.Header().Set("Access-Control-Allow-Origin", origin)
+// 		} else {
+// 			w.Header().Set("Access-Control-Allow-Origin", "*")
+// 		}
+
+// 		// 3. Explicitly allow credentials (Tokens, Cookies)
+// 		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+// 		// 4. Standard Allowed Methods and Headers
+// 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+// 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Origin")
+
+// 		// 5. Catch the Preflight "OPTIONS" request and send 200 OK immediately
+// 		if r.Method == http.MethodOptions {
+// 			w.WriteHeader(http.StatusOK)
+// 			return
+// 		}
+
+// 		// Move on to the actual function
+// 		next.ServeHTTP(w, r)
+// 	}
+// }
+
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Get the exact origin of the frontend making the request
 		origin := r.Header.Get("Origin")
 
-		// 2. Dynamically echo the origin back to the browser.
-		// This guarantees a 100% perfect match, satisfying strict credential rules.
-		if origin != "" {
+		// 1. Check if it matches our exact allowed list
+		if origin == "https://a1ce.cmkl.ac.th" || origin == "https://a1ce-test.cmkl.ac.th" || origin == "http://localhost:3000" || origin == "http://localhost:8080" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		} else {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			// 2. CRITICAL FIX: If the origin is missing (stripped by Kubernetes) or doesn't match,
+			// we forcefully set it to the test environment instead of using a "*" wildcard.
+			w.Header().Set("Access-Control-Allow-Origin", "https://a1ce-test.cmkl.ac.th")
 		}
 
-		// 3. Explicitly allow credentials (Tokens, Cookies)
+		// 3. Explicitly allow credentials
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		// 4. Standard Allowed Methods and Headers
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Origin")
 
-		// 5. Catch the Preflight "OPTIONS" request and send 200 OK immediately
+		// 5. Catch the Preflight "OPTIONS" request
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
