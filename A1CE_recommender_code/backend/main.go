@@ -534,59 +534,69 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Pass the map into the optimizer
-	roadmaps := OptimizeCourseSets(
-		scoredCourses,
-		profile,
-		requirements,
-		req.MaxCreditLoad,
-		req.MaxSets,
-		req.PreferredTheme,
-		graphicsMap,                       // <--- ADD THE MAP HERE!
-		os.Getenv("M2M_STAGING_API_BASE"), // <--- ADD THIS
-		client.JWTToken,
-	)
+	warningMessage := ""
+	var roadmaps []CourseSet
+
+	if profile.TotalCredits.Earned < 36 {
+		// 1. The Freshman Block (This still safely stops the algorithm)
+		warningMessage = "Need a total minimum credit of 36 to generate recommendation."
+	} else {
+		// Run the optimizer
+		roadmaps = OptimizeCourseSets(
+			scoredCourses,
+			profile,
+			requirements,
+			req.MaxCreditLoad,
+			req.MaxSets,
+			req.PreferredTheme,
+			graphicsMap,
+			os.Getenv("M2M_STAGING_API_BASE"),
+			client.JWTToken,
+		)
+
+		// 2. The 0.5 Soft Cutoff Warning
+		// Loop through the generated milestones to see if any missed the 0.5 mark
+		cutoffMissed := false
+		for _, rm := range roadmaps {
+			for _, ms := range rm.A1CEMilestoneGroup.Milestones {
+				if ms.FitScore < 0.5 {
+					cutoffMissed = true
+					break
+				}
+			}
+		}
+
+		if cutoffMissed {
+			warningMessage = "Warning: Some recommended competencies did not achieve the 0.5 minimum fit score cutoff."
+		}
+	}
 
 	// Build the official A1CE Response
 	var a1ceRoadmaps []A1CERoadmap
 
 	for i, rm := range roadmaps {
-		// Create a dynamic title based on the theme
-		title := fmt.Sprintf("PERSONALIZED ROADMAP - OPTION %d", i+1)
-		if rm.Theme != "" {
-			title = fmt.Sprintf("PERSONALIZED ROADMAP - %s FOCUS", strings.ToUpper(rm.Theme))
-		}
-
-		// 2. Loop through the Milestones in this specific roadmap to assign colors
-		for mIndex, milestone := range rm.A1CEMilestoneGroup.Milestones {
-			prefix := ""
-			if len(milestone.CompetencyCode) >= 3 {
-				prefix = strings.ToUpper(milestone.CompetencyCode[:3])
-			}
-
-			// If we have the color for this prefix, assign it directly!
-			if graphics, exists := graphicsMap[prefix]; exists {
-				rm.A1CEMilestoneGroup.Milestones[mIndex].Graphics = graphics
-			}
-		}
+		// Notice how clean this is now! We deleted the redundant color/title loop
+		// because OptimizeCourseSets already did it perfectly.
 
 		a1ceRoadmaps = append(a1ceRoadmaps, A1CERoadmap{
 			ID:              fmt.Sprintf("roadmap-gen-%d", i),
-			Title:           title,
+			Title:           rm.Title, // <--- Grabs Dr. Sally's new ordinal title directly!
 			Year:            2026,
 			Semester:        req.Semester,
 			Credits:         rm.TotalCredits,
 			AverageScore:    rm.AverageScore,
 			MinScore:        rm.MinScore,
 			MaxScore:        rm.MaxScore,
-			MilestoneGroups: []MilestoneGroup{rm.A1CEMilestoneGroup}, // Attach the nested groups!
+			MilestoneGroups: []MilestoneGroup{rm.A1CEMilestoneGroup},
 			UniversityCode:  "CMKL",
 		})
 	}
-	// --- END OF NEW CODE ---
 
+	// 3. Package the final payload to send back to Si Thu's frontend
 	response := A1CEResponse{
 		RecommendedRoadmaps: a1ceRoadmaps,
 		Status:              "success",
+		Warning:             warningMessage, // <--- Passes the text warning to the UI
 	}
 
 	w.Header().Set("Content-Type", "application/json")

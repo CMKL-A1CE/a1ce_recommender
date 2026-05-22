@@ -1,12 +1,64 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
-	"os"
+	"net/http"
+	"net/url"
 	"sort"
 	"strings"
+	"time"
 	// any other imports you have here
 )
+
+// fetchCompetencyDetailsFromM2M calls the API and returns StartDate, EndDate, IsAssessmentOnly, IsRequired, and Graphics
+func fetchCompetencyDetailsFromM2M(baseURL string, code string, semester string, token string) (string, string, bool, bool, Graphics) {
+	cleanBaseURL := strings.TrimSpace(baseURL)
+	cleanBaseURL = strings.TrimSuffix(cleanBaseURL, "/")
+
+	if cleanBaseURL == "" {
+		fmt.Println("(!) ERROR: baseURL is empty!")
+		return "", "", false, false, Graphics{}
+	}
+
+	encodedSemester := url.QueryEscape(semester)
+	apiURL := fmt.Sprintf("%s/api/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=7&semester_name=%s", cleanBaseURL, code, encodedSemester)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		fmt.Printf("(!) Failed to create request: %v\n", err)
+		return "", "", false, false, Graphics{}
+	}
+
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+
+	if err != nil {
+		fmt.Printf("(!) Request failed for %s: %v\n", code, err)
+		return "", "", false, false, Graphics{}
+	}
+	if resp.StatusCode != 200 {
+		fmt.Printf("(!) API BLOCKED US for %s - Status Code: %d\n", code, resp.StatusCode)
+		return "", "", false, false, Graphics{}
+	}
+	defer resp.Body.Close()
+
+	var detail CompetencyDetailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		fmt.Printf("(!) JSON Decode Error for %s: %v\n", code, err)
+		return "", "", false, false, Graphics{}
+	}
+
+	return detail.Competency.SemesterDetail.StartDate,
+		detail.Competency.SemesterDetail.EndDate,
+		detail.Competency.SemesterDetail.AssessmentOnly,
+		detail.Competency.Required,
+		detail.Competency.Graphics
+}
 
 // OptimizeCourseSets generates up to 4 thematic roadmaps
 func OptimizeCourseSets(
@@ -16,12 +68,19 @@ func OptimizeCourseSets(
 	maxCreditLoad float64,
 	maxSets int,
 	preferredTheme string,
-	graphicsMap map[string]Graphics, // <--- ADD THIS NEW PARAMETER!
-	baseURL string, // <--- NEW!
-	token string, // <--- NEW!
+	graphicsMap map[string]Graphics,
+	baseURL string,
+	token string,
 ) []CourseSet {
 
-	// 1. Cap the number of roadmaps requested (Max 4)
+	// --- DR. SALLY'S < 36 CREDITS CHECK ---
+	// If the student has less than 36 earned credits, immediately halt the algorithm
+	// and return an empty roadmap array.
+	if studentProfile.TotalCredits.Earned < 36 {
+		return []CourseSet{}
+	}
+	// --------------------------------------
+
 	if maxSets <= 0 {
 		maxSets = 1
 	}
@@ -32,13 +91,25 @@ func OptimizeCourseSets(
 	defaultThemes := []string{"code", "science", "games", "business"}
 	var roadmaps []CourseSet
 
-	// 2. The Multi-Roadmap Loop
 	for i := 0; i < maxSets; i++ {
+		// 1. Figure out the base theme
+		currentTheme := strings.ToLower(strings.TrimSpace(preferredTheme))
+		displayTheme := strings.ToUpper(currentTheme)
 
-		currentTheme := preferredTheme
-		if currentTheme == "" && i < len(defaultThemes) {
-			currentTheme = defaultThemes[i]
+		if currentTheme == "" || currentTheme == "none" {
+			genericNames := []string{"BALANCED FOUNDATION", "GENERAL EXPLORATION", "CORE COMPETENCIES", "BROAD FOCUS"}
+			if i < len(genericNames) {
+				displayTheme = genericNames[i]
+			} else {
+				displayTheme = "GENERAL EXPLORATION"
+			}
+			currentTheme = "No Theme"
+		} else if currentTheme == "" && i < len(defaultThemes) {
+			displayTheme = strings.ToUpper(defaultThemes[i])
 		}
+
+		// 2. Build the final ordinal title
+		roadmapTitle := fmt.Sprintf("PERSONALIZED ROADMAP %d - %s", i+1, displayTheme)
 
 		iterationCourses := make([]RecommendedCourse, len(baseScoredCourses))
 		copy(iterationCourses, baseScoredCourses)
@@ -68,17 +139,21 @@ func OptimizeCourseSets(
 		var selectedCourses []RecommendedCourse
 		totalCredits := 0.0
 		targetCredits := maxCreditLoad
-
 		subdomainCount := make(map[string]int)
 		maxPerSubdomain := 10
 
-		// ====================================================================
-		// THE FIX: Strict Prerequisite Hard Filter & Clean Selection Loop
-		// ====================================================================
+		type apiData struct {
+			startDate  string
+			endDate    string
+			isRequired bool
+			graphics   Graphics
+		}
+		liveDataCache := make(map[string]apiData)
+
+		// 1. SELECTION & FILTERING LOOP
 		for _, courseRec := range iterationCourses {
 			course := courseRec.Course
 
-			// If they haven't met the prerequisites, completely skip this course
 			if !CheckPrerequisites(course, studentProfile) {
 				continue
 			}
@@ -92,6 +167,31 @@ func OptimizeCourseSets(
 				continue
 			}
 
+			// --- DR. SALLY'S 0.5 SCORE CUTOFF ---
+			//rawScore := courseRec.FitScore
+			//if rawScore >= 100.0 {
+			//	rawScore -= 100.0 // Strip the theme boost to check the real base score
+			//}
+			//if rawScore < 0.5 {
+			//	continue // Drop this course completely!
+			//}
+			// ------------------------------------
+
+			// Fetch the live M2M API data
+			startDate, endDate, isAssessmentOnly, isReq, apiGraphics := fetchCompetencyDetailsFromM2M(baseURL, course.CourseCode, "Spring 2026", token)
+
+			// DROP assessment-only courses completely
+			if isAssessmentOnly {
+				continue
+			}
+
+			liveDataCache[course.CourseCode] = apiData{
+				startDate:  startDate,
+				endDate:    endDate,
+				isRequired: isReq,
+				graphics:   apiGraphics,
+			}
+
 			selectedCourses = append(selectedCourses, courseRec)
 			totalCredits += course.CreditHours
 			subdomainCount[course.SubdomainID]++
@@ -101,9 +201,7 @@ func OptimizeCourseSets(
 			}
 		}
 
-		// ====================================================================
-		// --- PACKAGE THE ROADMAP (A1CE Nested JSON Format) ---
-		// ====================================================================
+		// 2. PACKAGING LOOP
 		var sumScore, minScore, maxScore, avgScore float64
 		var milestones []Milestone
 
@@ -113,26 +211,46 @@ func OptimizeCourseSets(
 
 			for _, c := range selectedCourses {
 				sumScore += c.FitScore
-				// ... min/max logic ...
+				if c.FitScore < minScore {
+					minScore = c.FitScore
+				}
+				if c.FitScore > maxScore {
+					maxScore = c.FitScore
+				}
 
-				// --- 1. GRAB THE GRAPHICS (Already done!) ---
+				data := liveDataCache[c.Course.CourseCode]
+
 				prefix := ""
 				if len(c.Course.CourseCode) >= 3 {
 					prefix = strings.ToUpper(c.Course.CourseCode[:3])
 				}
+
 				var pillarGraphics Graphics
-				if g, exists := graphicsMap[prefix]; exists {
+				if data.graphics.IconBg != "" {
+					pillarGraphics = data.graphics
+				} else if g, exists := graphicsMap[prefix]; exists {
 					pillarGraphics = g
 				} else {
 					pillarGraphics = Graphics{IconBg: "#f3f4f6", BorderColor: "#9ca3af"}
 				}
 
-				// --- 2. GRAB THE DATES (NEW!) ---
-				// Call our new helper to fetch the exact dates for this specific course!
-				startDate, endDate := fetchCompetencyDates(os.Getenv("M2M_STAGING_API_BASE"), c.Course.CourseCode, "Spring 2026", "YOUR_TOKEN_HERE")
-				// Note: You will need to pass the real student token and semester down into this function
+				// --- DYNAMIC REASON GENERATOR ---
+				finalScore := c.FitScore
+				dynamicReason := c.Reason
 
-				// --- 3. BUILD THE MILESTONE ---
+				if finalScore >= 100.0 {
+					finalScore = finalScore - 100.0
+
+					if currentTheme == "No Theme" {
+						dynamicReason = "Highly recommended for a balanced foundation."
+					} else {
+						dynamicReason = fmt.Sprintf("Highly recommended for your %s focus!", strings.ToTitle(currentTheme))
+					}
+				} else if dynamicReason == "" || strings.Contains(dynamicReason, "0.70") {
+					dynamicReason = "Fulfills core curriculum requirements."
+				}
+				// -------------------------------------
+
 				milestones = append(milestones, Milestone{
 					ID:                   c.Course.CourseID,
 					TemplateID:           c.Course.TemplateID,
@@ -141,17 +259,17 @@ func OptimizeCourseSets(
 					CompetencyCode:       c.Course.CourseCode,
 					Credits:              int(c.Course.CreditHours),
 					SubdomainTitle:       c.Course.SubdomainID,
-					FitScore:             c.FitScore,
-					Reason:               c.Reason,
+					FitScore:             finalScore,
+					Reason:               dynamicReason,
 					Graphics:             pillarGraphics,
-					StartDate:            startDate, // <--- INJECTED DATE!
-					TargetCompletionDate: endDate,   // <--- INJECTED DATE!
+					StartDate:            data.startDate,
+					TargetCompletionDate: data.endDate,
+					Required:             data.isRequired,
 				})
 			}
 			avgScore = sumScore / float64(len(selectedCourses))
 		}
 
-		// Wrap the milestones in a MilestoneGroup (as A1CE expects)
 		group := MilestoneGroup{
 			ID:         "group-auto-gen",
 			Title:      "Personalized Recommendations",
@@ -159,15 +277,15 @@ func OptimizeCourseSets(
 			Milestones: milestones,
 		}
 
-		// Package the final Roadmap struct
 		roadmaps = append(roadmaps, CourseSet{
+			Title:              roadmapTitle,
 			Theme:              currentTheme,
 			Courses:            selectedCourses,
 			AverageScore:       avgScore,
 			MinScore:           minScore,
 			MaxScore:           maxScore,
 			TotalCredits:       int(totalCredits),
-			A1CEMilestoneGroup: group, // Attach the nested structure!
+			A1CEMilestoneGroup: group,
 		})
 	}
 

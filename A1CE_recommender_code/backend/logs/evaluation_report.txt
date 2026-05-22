@@ -1,13 +1,14 @@
-2026/05/17 15:08:50 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/05/17 15:08:50 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
-2026/05/17 15:08:50 ===========================================
-2026/05/17 15:08:50 A1CE Course Recommender API Server
-2026/05/17 15:08:50 ===========================================
-2026/05/17 15:08:50 Server listening on: http://localhost:8080
-2026/05/17 15:08:54 POST /api/v1/recommendations
-2026/05/17 15:08:56 Scanning 8 semesters for identity codes...
-2026/05/17 15:08:56 History scan complete. Total unique markers: 383
-2026/05/17 15:08:58 (!) API returned error 403 for course AIC-402
-2026/05/17 15:08:58 (!) API returned error 403 for course AIC-403
-2026/05/17 15:08:58 (!) API returned error 403 for course SEC-401
-2026/05/17 15:08:58 Completed in 3.867536s
+2026/05/22 14:28:28 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/05/22 14:28:28 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
+2026/05/22 14:28:28 ===========================================
+2026/05/22 14:28:28 A1CE Course Recommender API Server
+2026/05/22 14:28:28 ===========================================
+2026/05/22 14:28:28 Server listening on: http://localhost:8080
+2026/05/22 14:28:36 POST /api/v1/recommendations
+2026/05/22 14:28:38 Scanning 8 semesters for identity codes...
+2026/05/22 14:28:38 History scan complete. Total unique markers: 385
+2026/05/22 14:28:41 Completed in 4.8463925s
+2026/05/22 14:28:58 POST /api/v1/recommendations
+2026/05/22 14:29:00 Scanning 8 semesters for identity codes...
+2026/05/22 14:29:00 History scan complete. Total unique markers: 385
+2026/05/22 14:29:03 Completed in 4.5735487s

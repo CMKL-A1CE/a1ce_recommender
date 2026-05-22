@@ -159,6 +159,7 @@ type CourseCatalogResponse struct {
 }
 
 type CourseSet struct {
+	Title              string              `json:"title"`
 	Theme              string              `json:"theme"`
 	Courses            []RecommendedCourse `json:"courses"`
 	AverageScore       float64             `json:"average_score"`
@@ -203,6 +204,7 @@ type WeightUpdateResponse struct {
 type A1CEResponse struct {
 	RecommendedRoadmaps []A1CERoadmap `json:"recommended_roadmaps"`
 	Status              string        `json:"status"`
+	Warning             string        `json:"warning,omitempty"`
 }
 
 type A1CERoadmap struct {
@@ -280,9 +282,12 @@ type PillarInfo struct {
 // --- API Response Schemas for fetching Dates ---
 type CompetencyDetailResponse struct {
 	Competency struct {
+		Required       bool     `json:"required"` // <--- NEW: Grabs the required boolean
+		Graphics       Graphics `json:"graphics"` // <--- NEW: Reuses your existing Graphics struct!
 		SemesterDetail struct {
-			StartDate string `json:"start_date"`
-			EndDate   string `json:"end_date"`
+			StartDate      string `json:"start_date"`
+			EndDate        string `json:"end_date"`
+			AssessmentOnly bool   `json:"assessment_only"` // <--- NEW: Grabs the assessment filter
 		} `json:"semester_detail"`
 	} `json:"competency"`
 }
