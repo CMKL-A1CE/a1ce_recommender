@@ -22,6 +22,7 @@ var CurrentWeights = ScoringWeights{
 	Interest:   0.3,
 	Progress:   0.3,
 }
+var a1ceClient *A1CEClient
 
 // enableCORS securely handles Cross-Origin requests by dynamically echoing the origin
 // func enableCORS(next http.HandlerFunc) http.HandlerFunc {
@@ -115,6 +116,8 @@ func main() {
 	} else {
 		log.Printf("(✓) SUCCESS: Loaded %d IDENTITY mappings.", len(idMap))
 	}
+	//Create a new a1ce client
+	a1ceClient = NewA1CEClient()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/recommendations", enableCORS(handleRecommendations))
@@ -260,9 +263,7 @@ func handleStudentData(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusBadRequest, "MISSING_PARAM", "student_id is required", "")
 		return
 	}
-	client := NewA1CEClient()
-	//client.JWTToken = getAuthorzationCred(r, "token")
-	profile, err := client.GetStudentProfile(studentID)
+	profile, err := a1ceClient.GetStudentProfile(studentID)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "API_ERROR", "Failed to fetch student data", err.Error())
 		return
@@ -279,10 +280,8 @@ func handleCourseCatalog(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusBadRequest, "MISSING_REQUIRED_FIELD", "semester/version required", "")
 		return
 	}
-	client := NewA1CEClient()
-	client.JWTToken = getAuthorzationCred(r, "token")
-	client.UniversityCode = "CMKL"
-	catalog, err := client.GetCourseCatalog(semester, curriculumVersion)
+	a1ceClient.UniversityCode = "CMKL"
+	catalog, err := a1ceClient.GetCourseCatalog(semester, curriculumVersion)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch catalog", err.Error())
 		return
@@ -341,18 +340,14 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	} else if req.WeightType == "balanced" {
 		compW, intW, progW = 0.33, 0.33, 0.34
 	}
-
-	client := NewA1CEClient()
-	client.JWTToken = getAuthorzationCred(r, "token")
-
-	profile, err := client.GetStudentProfile(req.StudentID)
+	profile, err := a1ceClient.GetStudentProfile(req.StudentID)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch profile", err.Error())
 		return
 	}
 
 	idMap, _ := loadIdentityMap("course_identities.json")
-	completedMap := fetchAllCompletedIdentityCodes(client, req.StudentID, profile, idMap)
+	completedMap := fetchAllCompletedIdentityCodes(a1ceClient, req.StudentID, profile, idMap)
 
 	// Interests
 	var successfulCourses []string
@@ -363,7 +358,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else if req.PreviousSemester != "" {
-		semesterCards, err := client.GetSemesterCompetencies(req.StudentID, req.PreviousSemester)
+		semesterCards, err := a1ceClient.GetSemesterCompetencies(req.StudentID, req.PreviousSemester)
 		if err == nil {
 			for _, card := range semesterCards {
 				if card.Grade > 1.0 {
@@ -374,7 +369,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Catalog
-	catalog, err := client.GetCourseCatalog(req.Semester, profile.CurriculumVersion)
+	catalog, err := a1ceClient.GetCourseCatalog(req.Semester, profile.CurriculumVersion)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch catalog", err.Error())
 		return
@@ -528,7 +523,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Fetch the graphics right before calling the optimizer
-	graphicsMap, _ := fetchPillarGraphics(os.Getenv("M2M_STAGING_API_BASE"), client.JWTToken)
+	graphicsMap, _ := fetchPillarGraphics(os.Getenv("M2M_BASE_URL"), a1ceClient.JWTToken)
 	if graphicsMap == nil {
 		graphicsMap = make(map[string]Graphics)
 	}
@@ -550,8 +545,8 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			req.MaxSets,
 			req.PreferredTheme,
 			graphicsMap,
-			os.Getenv("M2M_STAGING_API_BASE"),
-			client.JWTToken,
+			os.Getenv("M2M_BASE_URL"),
+			a1ceClient.JWTToken,
 		)
 
 		// 2. The 0.5 Soft Cutoff Warning
