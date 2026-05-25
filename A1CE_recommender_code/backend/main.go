@@ -541,6 +541,13 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		// 1. The Freshman Block (This still safely stops the algorithm)
 		warningMessage = "Need a total minimum credit of 36 to generate recommendation."
 	} else {
+		// --- THE FIX: Generate the super-powered M2M token here ---
+		//m2mToken, err := client.GenerateInternalToken()
+		//if err != nil {
+		//	fmt.Println("Error generating M2M token:", err)
+		//	return // or handle the error appropriately for your handler
+		//}
+
 		// Run the optimizer
 		roadmaps = OptimizeCourseSets(
 			scoredCourses,

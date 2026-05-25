@@ -35,23 +35,32 @@ func (c *A1CEClient) GenerateInternalToken() (string, error) {
 		return "", fmt.Errorf("failed to parse RSA private key: %v", err)
 	}
 
+	// Let's grab your one working ID
+	adminID := os.Getenv("M2M_CURRICULUM_DESIGNER_ID")
+
 	claims := jwt.MapClaims{
 		"email":       os.Getenv("M2M_EMAIL"),
 		"given_name":  "CMKL",
 		"family_name": "Recommendations",
 		"locale":      "",
-		"roles":       []string{"User", "Admin", "Curriculum Designer"},
-		"user_id":     os.Getenv("M2M_USER_ID"),
+		// ---> ADDED "Recommender" TO THIS LIST <---
+		"roles": []string{"User", "Admin", "Curriculum Designer", "Recommender"},
+		// ---> FALLBACK: Use Admin ID so user_id is never blank <---
+		"user_id": adminID,
 		"identities": []map[string]interface{}{
 			{
-				// Badge 1: Admin (For Student Data)
 				"id":   os.Getenv("M2M_ADMIN_ID"),
 				"role": "Admin",
 			},
 			{
-				// Badge 2: Curriculum Designer (For Course Catalog)
+				// Keep Curriculum Designer just in case
 				"id":   os.Getenv("M2M_CURRICULUM_DESIGNER_ID"),
 				"role": "Curriculum Designer",
+			},
+			// ---> NEW: THE RECOMMENDER BADGE <---
+			{
+				"id":   adminID, // Use Admin ID as a fallback for the Recommender ID
+				"role": "Recommender",
 			},
 		},
 		"exp": time.Now().Add(24 * time.Hour).Unix(),
