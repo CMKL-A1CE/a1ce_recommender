@@ -58,9 +58,9 @@ func NewA1CEClient() *A1CEClient {
 }
 func (c *A1CEClient) GenerateInternalToken() (string, int64, error) {
 	expTime := time.Now().Add(24 * time.Hour).Unix()
-	privateKeyStr := os.Getenv("A1CE_JWT_KEY")
+	privateKeyStr := os.Getenv("M2M_JWT_KEY")
 	if privateKeyStr == "" {
-		return "", 0, fmt.Errorf("A1CE_JWT_KEY is missing from the .env file")
+		return "", 0, fmt.Errorf("M2M_JWT_KEY is missing from the .env file")
 	}
 
 	privateKeyStr = strings.ReplaceAll(privateKeyStr, "\\n", "\n")
