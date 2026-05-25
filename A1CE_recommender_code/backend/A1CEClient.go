@@ -392,11 +392,10 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 }
 
 // This function is to retrive the competency detail information
-func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName string, curriculumVersion int) (*Course, error) {
-
+func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName string, curriculumVersion int) (*Course, string, string, bool, bool, error) {
 	u, err := url.Parse(c.BaseURL + "/competency/detail")
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse URL: %w", err)
+		return nil, "", "", false, false, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
 	q := u.Query()
@@ -404,11 +403,11 @@ func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName str
 	q.Set("semester_name", semesterName)
 	q.Set("curriculum_version", strconv.Itoa(curriculumVersion))
 	q.Set("university_code", c.UniversityCode)
-
 	u.RawQuery = q.Encode()
 
 	finalURL := strings.ReplaceAll(u.String(), "+", "%20")
 
+	// The struct that catches the dates
 	type competencyDetailResponse struct {
 		ID          string  `json:"id"`
 		TemplateID  string  `json:"template_id"`
@@ -416,17 +415,21 @@ func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName str
 		Title       string  `json:"title"`
 		Description string  `json:"description"`
 		Credits     float64 `json:"credits"`
+		Required    bool    `json:"required"`
+		SemesterDetail struct {
+			StartDate      string `json:"start_date"`
+			EndDate        string `json:"end_date"`
+			AssessmentOnly bool   `json:"assessment_only"`
+		} `json:"semester_detail"`
 	}
 
 	var response struct {
 		Competency competencyDetailResponse `json:"competency"`
 	}
 
+	// This makes finalURL and response "used" so Go stops yelling
 	if err := c.makeRequest("GET", finalURL, &response); err != nil {
-		return nil, fmt.Errorf(
-			"failed to get competency detail: %w",
-			err,
-		)
+		return nil, "", "", false, false, fmt.Errorf("failed to get competency detail: %w", err)
 	}
 
 	ac := response.Competency
@@ -450,7 +453,7 @@ func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName str
 		CreditHours: ac.Credits,
 	}
 
-	return course, nil
+	return course, ac.SemesterDetail.StartDate, ac.SemesterDetail.EndDate, ac.SemesterDetail.AssessmentOnly, ac.Required, nil
 }
 
 // This function executes an HTTP request to the M2M API with token validation, and response handling.
@@ -584,3 +587,4 @@ func (c *A1CEClient) LoadCourseIdentities(filepath string) {
 		fmt.Println("Warning: Failed to parse course identities JSON:", err)
 	}
 }
+

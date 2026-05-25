@@ -545,8 +545,9 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			req.MaxSets,
 			req.PreferredTheme,
 			graphicsMap,
-			os.Getenv("M2M_BASE_URL"),
-			a1ceClient.JWTToken,
+			//os.Getenv("M2M_BASE_URL"),
+			//a1ceClient.JWTToken,
+			a1ceClient,
 		)
 
 		// 2. The 0.5 Soft Cutoff Warning
