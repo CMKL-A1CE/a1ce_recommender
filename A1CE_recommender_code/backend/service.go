@@ -65,8 +65,27 @@ func (s *RecommenderService) GenerateRecommendations(req *RecommendationRequest)
 	// Fetch the graphics map using the client's token before passing it to the optimizer
 	graphicsMap, err := fetchPillarGraphics(os.Getenv("M2M_STAGING_API_BASE"), s.a1ceClient.JWTToken)
 	if err != nil || graphicsMap == nil {
-		// Fallback to an empty map so the app doesn't crash if the API fails
 		graphicsMap = make(map[string]Graphics)
+	}
+
+	// --- THE OVERRIDE SWITCH ---
+	// If the API gives us nothing, we hardcode the fallback data ourselves
+	if len(graphicsMap) == 0 {
+		fmt.Println("(!) Staging API gave no graphics. Injecting exact UI design colors.")
+
+		// Using the exact sampled hex codes from the UI reference image
+		graphicsMap["AIC"] = Graphics{IconBg: "#E51F24", BorderColor: "#B91216", Icon: ""} // Artificial Intelligence (Red)
+		graphicsMap["HCD"] = Graphics{IconBg: "#FFC90E", BorderColor: "#D6A300", Icon: ""} // Human-Centered Design (Yellow)
+		graphicsMap["SYS"] = Graphics{IconBg: "#ED4C7B", BorderColor: "#C6305C", Icon: ""} // Scalable Systems (Pink)
+		graphicsMap["SEC"] = Graphics{IconBg: "#17C3B2", BorderColor: "#0FA394", Icon: ""} // Cybersecurity (Cyan)
+		graphicsMap["ENI"] = Graphics{IconBg: "#5AB05B", BorderColor: "#438F44", Icon: ""} // Entrepreneurship (Light Green)
+		graphicsMap["MAT"] = Graphics{IconBg: "#3C78D8", BorderColor: "#2A5CA8", Icon: ""} // Mathematics (Light Blue)
+		graphicsMap["SCI"] = Graphics{IconBg: "#0A5C55", BorderColor: "#06423D", Icon: ""} // Science (Dark Green/Teal)
+		graphicsMap["HAS"] = Graphics{IconBg: "#9628D4", BorderColor: "#751AA8", Icon: ""} // Arts & Humanities (Purple)
+		graphicsMap["COM"] = Graphics{IconBg: "#F58220", BorderColor: "#CE6813", Icon: ""} // Communications (Orange)
+		graphicsMap["SOF"] = Graphics{IconBg: "#2C1E5C", BorderColor: "#1A103C", Icon: ""} // Software Engineering (Dark Indigo)
+		graphicsMap["SEN"] = Graphics{IconBg: "#8C6E51", BorderColor: "#6B523A", Icon: ""} // Soft Skills (Brown/Bronze)
+		graphicsMap["URD"] = Graphics{IconBg: "#3B14E6", BorderColor: "#260AA3", Icon: ""} // URD Research (Electric Blue/Purple)
 	}
 
 	// Call the new Phase 2 function, passing the graphicsMap as the 7th and final argument
@@ -78,8 +97,7 @@ func (s *RecommenderService) GenerateRecommendations(req *RecommendationRequest)
 		1,
 		"",
 		graphicsMap,
-		os.Getenv("M2M_STAGING_API_BASE"),
-		s.a1ceClient.JWTToken,
+		a1ceClient,
 	)
 
 	var recommendedSet []RecommendedCourse

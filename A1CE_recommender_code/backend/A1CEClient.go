@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,73 +18,33 @@ type A1CEClient struct {
 	BaseURL          string
 	HTTPClient       *http.Client
 	JWTToken         string
+	TokenExpiresAt   time.Time
 	UniversityCode   string
 	CourseIdentities map[string]string
 }
-
-func (c *A1CEClient) GenerateInternalToken() (string, error) {
-	privateKeyStr := os.Getenv("A1CE_JWT_KEY")
-	if privateKeyStr == "" {
-		return "", fmt.Errorf("A1CE_JWT_KEY is missing from the .env file")
-	}
-
-	privateKeyStr = strings.ReplaceAll(privateKeyStr, "\\n", "\n")
-	privateKeyStr = strings.ReplaceAll(privateKeyStr, "\"", "")
-
-	key, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(privateKeyStr))
-	if err != nil {
-		return "", fmt.Errorf("failed to parse RSA private key: %v", err)
-	}
-
-	// Let's grab your one working ID
-	adminID := os.Getenv("M2M_CURRICULUM_DESIGNER_ID")
-
-	claims := jwt.MapClaims{
-		"email":       os.Getenv("M2M_EMAIL"),
-		"given_name":  "CMKL",
-		"family_name": "Recommendations",
-		"locale":      "",
-		// ---> ADDED "Recommender" TO THIS LIST <---
-		"roles": []string{"User", "Admin", "Curriculum Designer", "Recommender"},
-		// ---> FALLBACK: Use Admin ID so user_id is never blank <---
-		"user_id": adminID,
-		"identities": []map[string]interface{}{
-			{
-				"id":   os.Getenv("M2M_ADMIN_ID"),
-				"role": "Admin",
-			},
-			{
-				// Keep Curriculum Designer just in case
-				"id":   os.Getenv("M2M_CURRICULUM_DESIGNER_ID"),
-				"role": "Curriculum Designer",
-			},
-			// ---> NEW: THE RECOMMENDER BADGE <---
-			{
-				"id":   adminID, // Use Admin ID as a fallback for the Recommender ID
-				"role": "Recommender",
-			},
-		},
-		"exp": time.Now().Add(24 * time.Hour).Unix(),
-		"jti": fmt.Sprintf("%d", time.Now().UnixNano()),
-	}
-
-	// ---> ADD THESE LINES TO PRINT THE CLAIMS <---
-	claimsJSON, _ := json.MarshalIndent(claims, "", "  ")
-	fmt.Println("\n--- DEBUG: EXACT JWT CLAIMS BEING SENT ---")
-	fmt.Println(string(claimsJSON))
-	fmt.Println("------------------------------------------")
-
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	return token.SignedString(key)
+type Identity struct {
+	Id   string `json:"id"`
+	Role string `json:"role"`
 }
 
 func NewA1CEClient() *A1CEClient {
 	client := &A1CEClient{
-		BaseURL:          os.Getenv("A1CE_BACKEND_API_BASE"),
+		BaseURL:          os.Getenv("M2M_BASE_URL"),
 		HTTPClient:       &http.Client{Timeout: 10 * time.Second},
 		CourseIdentities: make(map[string]string),
 	}
 
+	// Generate token
+	accessToken, exp, err := client.GenerateInternalToken()
+	if err != nil {
+		fmt.Printf("ERROR: Token generation failed: %v\n", err)
+		return client // still return client safely
+	}
+
+	client.JWTToken = accessToken
+	client.TokenExpiresAt = time.Unix(exp, 0)
+
+	client.UniversityCode = os.Getenv("UNIVERSITY")
 	// Read the JSON file automatically!
 	data, err := os.ReadFile("course_identities.json")
 	if err == nil {
@@ -95,7 +56,91 @@ func NewA1CEClient() *A1CEClient {
 
 	return client
 }
+func (c *A1CEClient) GenerateInternalToken() (string, int64, error) {
+	expTime := time.Now().Add(24 * time.Hour).Unix()
+	privateKeyStr := os.Getenv("M2M_JWT_KEY")
+	if privateKeyStr == "" {
+		return "", 0, fmt.Errorf("M2M_JWT_KEY is missing from the .env file")
+	}
 
+	privateKeyStr = strings.ReplaceAll(privateKeyStr, "\\n", "\n")
+	privateKeyStr = strings.ReplaceAll(privateKeyStr, "\"", "")
+
+	key, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(privateKeyStr))
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to parse RSA private key: %v", err)
+	}
+
+	// Let's grab your one working ID
+	adminID := os.Getenv("M2M_CURRICULUM_DESIGNER_ID")
+
+	claims := jwt.MapClaims{
+		"email":       os.Getenv("M2M_EMAIL"),
+		"given_name":  "CMKL",
+		"family_name": "Recommendations",
+		"picture":     "",
+		"locale":      "",
+		"roles":       []string{"User", "Admin", "Curriculum Designer"},
+		"user_id":     os.Getenv("M2M_USER_ID"),
+		"identities": []map[string]interface{}{
+			{
+				// Badge 1: Admin (For Student Data)
+				"id":   os.Getenv("M2M_ADMIN_ID"),
+				"role": "Admin",
+			},
+			{
+				// Badge 2: Curriculum Designer (For Course Catalog)
+				"id":   os.Getenv("M2M_CURRICULUM_DESIGNER_ID"),
+				"role": "Curriculum Designer",
+			},
+			// ---> NEW: THE RECOMMENDER BADGE <---
+			{
+				"id":   adminID, // Use Admin ID as a fallback for the Recommender ID
+				"role": "Recommender",
+			},
+		},
+		"exp": expTime,
+		"jti": fmt.Sprintf("%d", time.Now().UnixNano()),
+	}
+
+	// ---> ADD THESE LINES TO PRINT THE CLAIMS <---
+	claimsJSON, _ := json.MarshalIndent(claims, "", "  ")
+	fmt.Println("\n--- DEBUG: EXACT JWT CLAIMS BEING SENT ---")
+	fmt.Println(string(claimsJSON))
+	fmt.Println("------------------------------------------")
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+
+	signedToken, err := token.SignedString(key)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to sign token: %w", err)
+	}
+
+	return signedToken, expTime, nil
+
+}
+
+// This function checks whether the current JWT token is still valid.
+// If the token is missing or will expire within the next 5 minutes,
+// it generates a new token using GenerateInternalToken and updates the client state.
+// This prevents API calls from failing due to expired authentication.
+// Returns an error if token regeneration fails.
+func (c *A1CEClient) ensureValidToken() error {
+
+	// If token is still valid for more than 5 minutes, reuse it
+	if c.JWTToken != "" && time.Now().Before(c.TokenExpiresAt.Add(-5*time.Minute)) {
+		return nil
+	}
+	token, exp, err := c.GenerateInternalToken()
+	if err != nil {
+		return fmt.Errorf("failed to refresh JWT token: %w", err)
+	}
+
+	c.JWTToken = token
+	c.TokenExpiresAt = time.Unix(exp, 0)
+
+	return nil
+}
 func (c *A1CEClient) GetStudentProfile(studentID string) (*StudentProfile, error) {
 	profile := &StudentProfile{
 		StudentID:           studentID,
@@ -182,6 +227,15 @@ func (c *A1CEClient) GetCourseCatalog(semester string, curriculumVersion int) (*
 			if !seenIDs[course.CourseID] {
 				seenIDs[course.CourseID] = true
 				catalog.Courses = append(catalog.Courses, course)
+
+				//Get the competency detail
+				// competencyDetail, err := c.getCompetencyDetail(course.CourseCode, semester, curriculumVersion)
+				// if err != nil {
+				// 	fmt.Printf("Warning: Failed to fetch coompetency Detail %s: %v\n", course.CourseCode, err)
+				// 	continue
+				// }
+				// fmt.Printf("Competency Detail :%v", competencyDetail)
+
 			}
 		}
 	}
@@ -347,98 +401,146 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 	return courses, nil
 }
 
-func (c *A1CEClient) makeRequest(method, url string, result interface{}) error {
-	fmt.Println("\n--------------------------------------------------")
-	fmt.Printf("DEBUG: ATTEMPTING CONNECTION - %s\n", url)
-
-	// 1. Generate the JWT
-	token, err := c.GenerateInternalToken()
+// This function is to retrive the competency detail information
+func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName string, curriculumVersion int) (*Course, string, string, bool, bool, error) {
+	u, err := url.Parse(c.BaseURL + "/competency/detail")
 	if err != nil {
-		fmt.Printf("ERROR: Token Generation Failed: %v\n", err)
-		return err
+		return nil, "", "", false, false, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
-	// 2. Output the JWT for verification
-	fmt.Printf("DEBUG: GENERATED JWT: %s\n", token)
+	q := u.Query()
+	q.Set("competency_code", competencyCode)
+	q.Set("semester_name", semesterName)
+	q.Set("curriculum_version", strconv.Itoa(curriculumVersion))
+	q.Set("university_code", c.UniversityCode)
+	u.RawQuery = q.Encode()
+
+	finalURL := strings.ReplaceAll(u.String(), "+", "%20")
+
+	// The struct that catches the dates
+	type competencyDetailResponse struct {
+		ID             string  `json:"id"`
+		TemplateID     string  `json:"template_id"`
+		Code           string  `json:"competency_code"`
+		Title          string  `json:"title"`
+		Description    string  `json:"description"`
+		Credits        float64 `json:"credits"`
+		Required       bool    `json:"required"`
+		SemesterDetail struct {
+			StartDate      string `json:"start_date"`
+			EndDate        string `json:"end_date"`
+			AssessmentOnly bool   `json:"assessment_only"`
+		} `json:"semester_detail"`
+	}
+
+	var response struct {
+		Competency competencyDetailResponse `json:"competency"`
+	}
+
+	// This makes finalURL and response "used" so Go stops yelling
+	if err := c.makeRequest("GET", finalURL, &response); err != nil {
+		return nil, "", "", false, false, fmt.Errorf("failed to get competency detail: %w", err)
+	}
+
+	ac := response.Competency
+
+	finalID := ac.ID
+	if finalID == "" {
+		finalID = ac.Code
+	}
+
+	finalTemplateID := ac.TemplateID
+	if mappedID, exists := c.CourseIdentities[ac.Code]; exists {
+		finalTemplateID = mappedID
+	}
+
+	course := &Course{
+		CourseID:    finalID,
+		TemplateID:  finalTemplateID,
+		CourseCode:  ac.Code,
+		CourseName:  ac.Title,
+		Description: ac.Description,
+		CreditHours: ac.Credits,
+	}
+
+	return course, ac.SemesterDetail.StartDate, ac.SemesterDetail.EndDate, ac.SemesterDetail.AssessmentOnly, ac.Required, nil
+}
+
+// This function executes an HTTP request to the M2M API with token validation, and response handling.
+// - Ensures the JWT access token is valid before sending the request
+// - Builds and executes the HTTP request with required headers
+// - Logs request URL and response status for debugging
+// - Detects and rejects HTML responses (e.g., security gateway blocks)
+// - Handles non-2xx HTTP responses as API errors
+// - Parses successful JSON responses into the provided result object
+// Returns an error if request creation, network call, authentication, or response parsing fails.
+func (c *A1CEClient) makeRequest(method, urlStr string, result interface{}) error {
+
+	fmt.Println("\n--------------------------------------------------")
+	fmt.Printf("DEBUG: REQUEST URL: %s\n", urlStr)
 	fmt.Println("--------------------------------------------------")
 
-	// 3. Create the HTTP Request
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		fmt.Printf("ERROR: Request Creation Failed: %v\n", err)
+	// Ensure the access token is valid before proceeding
+	if err := c.ensureValidToken(); err != nil {
 		return err
 	}
 
-	// 4. Act like a Backend Server, NOT a Web Browser!
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "CMKL-Recommender-Service/1.0")
-
-	// 5. Attach Authentication (Both Header and Cookie to be safe)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.AddCookie(&http.Cookie{
-		Name:  "jwt",
-		Value: token,
-		Path:  "/",
-	})
-
-	// 5.5 THE CLOUDFLARE BYPASS: Inject the VIP Headers from .env
-	cfHeader := os.Getenv("CF_BYPASS_HEADER")
-	cfValue := os.Getenv("CF_BYPASS_VALUE")
-	if cfHeader != "" && cfValue != "" {
-		req.Header.Set(cfHeader, cfValue)
-		fmt.Printf("DEBUG: Injected Cloudflare VIP Bypass Header: %s\n", cfHeader)
+	req, err := http.NewRequest(method, urlStr, nil)
+	if err != nil {
+		return fmt.Errorf("request creation failed: %w", err)
 	}
 
-	fmt.Println("INFO: Sending request to A1CE server...")
+	// Set required request headers to ensure the client is authenticated and the API accepts the request.
+	// This includes:
+	// - JWT cookie for authentication
+	// - User-Agent to mimic a standard browser request
+	// - Accept header to allow all response types
+	// - Connection header to keep the connection alive
 
-	// 6. Execute the Request
+	req.Header.Set("Cookie", "jwt="+c.JWTToken)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/122.0 Safari/537.36")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Connection", "keep-alive")
+
+	// Execute request
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		fmt.Printf("ERROR: Network Request Failed: %v\n", err)
-		return err
+		return fmt.Errorf("network request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("INFO: Response Received - Status: %d\n", resp.StatusCode)
-
-	// 7. Read the Response Body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Printf("ERROR: Failed to read response body: %v\n", err)
-		return err
+		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// 8. Detect if the server sent HTML (meaning a redirect to login or Cloudflare block)
-	responseStr := string(body)
-	if len(responseStr) > 0 && responseStr[0] == '<' {
-		fmt.Println("ERROR: Connection blocked by Security Gateway (HTML Received).")
+	bodyStr := string(body)
 
-		previewLen := 500
-		if len(responseStr) < 500 {
-			previewLen = len(responseStr)
-		}
-		fmt.Printf("DEBUG: HTML Preview: %s\n", responseStr[:previewLen])
-		return fmt.Errorf("A1CE API returned HTML - check if RSA Key/ID pair is authorized")
+	fmt.Printf("INFO: HTTP Status: %d\n", resp.StatusCode)
+
+	// Check HTML response more reliable
+	if strings.Contains(bodyStr, "<html") || strings.Contains(bodyStr, "<!DOCTYPE") {
+		return fmt.Errorf("blocked by security gateway (HTML response)")
 	}
 
-	// 9. Handle non-200 Status Codes
-	if resp.StatusCode != 200 {
-		fmt.Printf("ERROR: API rejected request (Status %d): %s\n", resp.StatusCode, responseStr)
-		return fmt.Errorf("api error %d", resp.StatusCode)
+	// Handle non-success status codes
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+
+		return fmt.Errorf(
+			"api error (status %d): %s",
+			resp.StatusCode,
+			bodyStr,
+		)
 	}
 
-	// 10. Successfully Decode the JSON data
-	fmt.Println("INFO: Connection Successful. Data received.")
-	err = json.Unmarshal(body, result)
-	if err != nil {
-		fmt.Printf("ERROR: JSON Decode Failed: %v\n", err)
-		return err
+	// Parse JSON response
+	if err := json.Unmarshal(body, result); err != nil {
+		return fmt.Errorf("json decode failed: %w, body: %s", err, bodyStr)
 	}
 
+	fmt.Println("INFO: Request successful")
 	return nil
 }
-
 func (c *A1CEClient) Login() error {
 	loginURL := "https://a1ce.cmkl.ac.th/api/auth/login"
 
@@ -480,7 +582,6 @@ func (c *A1CEClient) Login() error {
 	fmt.Println("INFO: Login successful. Session token acquired.")
 	return nil
 }
-
 func (c *A1CEClient) LoadCourseIdentities(filepath string) {
 	c.CourseIdentities = make(map[string]string)
 

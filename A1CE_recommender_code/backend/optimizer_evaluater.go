@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"io"
 	// any other imports you have here
 )
 
@@ -23,7 +24,7 @@ func fetchCompetencyDetailsFromM2M(baseURL string, code string, semester string,
 	}
 
 	encodedSemester := url.QueryEscape(semester)
-	apiURL := fmt.Sprintf("%s/api/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=7&semester_name=%s", cleanBaseURL, code, encodedSemester)
+	apiURL := fmt.Sprintf("%s/api/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=&semester_name=%s", cleanBaseURL, code, encodedSemester)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -31,8 +32,11 @@ func fetchCompetencyDetailsFromM2M(baseURL string, code string, semester string,
 		return "", "", false, false, Graphics{}
 	}
 
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
-	req.Header.Set("Content-Type", "application/json")
+	// --- CHRISTINE'S EXACT SECURITY HEADERS ---
+	req.Header.Set("Cookie", "jwt="+strings.TrimSpace(token)) // Uses Cookie instead of Bearer!
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/122.0 Safari/537.36")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Connection", "keep-alive")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -47,8 +51,22 @@ func fetchCompetencyDetailsFromM2M(baseURL string, code string, semester string,
 	}
 	defer resp.Body.Close()
 
+	// --- THE DEBUG VISION BLOCK ---
+	// Read the raw text instead of silently decoding it
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Error reading body:", err)
+		return "", "", false, false, Graphics{}
+	}
+
+	// Print the exact raw text from the server to your terminal!
+	fmt.Printf("\n--- RAW API RESPONSE FOR %s ---\n", code)
+	fmt.Println(string(bodyBytes))
+	fmt.Println("----------------------------------")
+
+	// Now decode it safely
 	var detail CompetencyDetailResponse
-	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+	if err := json.Unmarshal(bodyBytes, &detail); err != nil {
 		fmt.Printf("(!) JSON Decode Error for %s: %v\n", code, err)
 		return "", "", false, false, Graphics{}
 	}
@@ -61,6 +79,7 @@ func fetchCompetencyDetailsFromM2M(baseURL string, code string, semester string,
 }
 
 // OptimizeCourseSets generates up to 4 thematic roadmaps
+// OptimizeCourseSets generates up to 4 thematic roadmaps
 func OptimizeCourseSets(
 	baseScoredCourses []RecommendedCourse,
 	studentProfile *StudentProfile,
@@ -69,13 +88,28 @@ func OptimizeCourseSets(
 	maxSets int,
 	preferredTheme string,
 	graphicsMap map[string]Graphics,
-	baseURL string,
-	token string,
+	a1ceClient *A1CEClient, // <--- Correctly passing the client here!
 ) []CourseSet {
 
+	if graphicsMap == nil {
+		graphicsMap = make(map[string]Graphics)
+	}
+	if len(graphicsMap) == 0 {
+		graphicsMap["AIC"] = Graphics{IconBg: "#E51F24", BorderColor: "#B91216", Icon: ""} 
+		graphicsMap["HCD"] = Graphics{IconBg: "#FFC90E", BorderColor: "#D6A300", Icon: ""} 
+		graphicsMap["SYS"] = Graphics{IconBg: "#ED4C7B", BorderColor: "#C6305C", Icon: ""} 
+		graphicsMap["SEC"] = Graphics{IconBg: "#17C3B2", BorderColor: "#0FA394", Icon: ""} 
+		graphicsMap["ENI"] = Graphics{IconBg: "#5AB05B", BorderColor: "#438F44", Icon: ""} 
+		graphicsMap["MAT"] = Graphics{IconBg: "#3C78D8", BorderColor: "#2A5CA8", Icon: ""} 
+		graphicsMap["SCI"] = Graphics{IconBg: "#0A5C55", BorderColor: "#06423D", Icon: ""} 
+		graphicsMap["HAS"] = Graphics{IconBg: "#9628D4", BorderColor: "#751AA8", Icon: ""} 
+		graphicsMap["COM"] = Graphics{IconBg: "#F58220", BorderColor: "#CE6813", Icon: ""} 
+		graphicsMap["SOF"] = Graphics{IconBg: "#2C1E5C", BorderColor: "#1A103C", Icon: ""} 
+		graphicsMap["SEN"] = Graphics{IconBg: "#8C6E51", BorderColor: "#6B523A", Icon: ""} 
+		graphicsMap["URD"] = Graphics{IconBg: "#3B14E6", BorderColor: "#260AA3", Icon: ""} 
+	}
+
 	// --- DR. SALLY'S < 36 CREDITS CHECK ---
-	// If the student has less than 36 earned credits, immediately halt the algorithm
-	// and return an empty roadmap array.
 	if studentProfile.TotalCredits.Earned < 36 {
 		return []CourseSet{}
 	}
@@ -108,7 +142,6 @@ func OptimizeCourseSets(
 			displayTheme = strings.ToUpper(defaultThemes[i])
 		}
 
-		// 2. Build the final ordinal title
 		roadmapTitle := fmt.Sprintf("PERSONALIZED ROADMAP %d - %s", i+1, displayTheme)
 
 		iterationCourses := make([]RecommendedCourse, len(baseScoredCourses))
@@ -167,20 +200,16 @@ func OptimizeCourseSets(
 				continue
 			}
 
-			// --- DR. SALLY'S 0.5 SCORE CUTOFF ---
-			//rawScore := courseRec.FitScore
-			//if rawScore >= 100.0 {
-			//	rawScore -= 100.0 // Strip the theme boost to check the real base score
-			//}
-			//if rawScore < 0.5 {
-			//	continue // Drop this course completely!
-			//}
-			// ------------------------------------
+			// --- ONE SINGLE CLEAN CALL TO THE API ---
+			_, startDate, endDate, isAssessmentOnly, isReq, err := a1ceClient.getCompetencyDetail(course.CourseCode, "Spring 2026", studentProfile.CurriculumVersion)
+			
+			if err != nil {
+				fmt.Printf("(!) Error fetching detail via client for %s: %v\n", course.CourseCode, err)
+				continue 
+			}
 
-			// Fetch the live M2M API data
-			startDate, endDate, isAssessmentOnly, isReq, apiGraphics := fetchCompetencyDetailsFromM2M(baseURL, course.CourseCode, "Spring 2026", token)
+			var apiGraphics Graphics 
 
-			// DROP assessment-only courses completely
 			if isAssessmentOnly {
 				continue
 			}
@@ -191,6 +220,7 @@ func OptimizeCourseSets(
 				isRequired: isReq,
 				graphics:   apiGraphics,
 			}
+			// ----------------------------------------
 
 			selectedCourses = append(selectedCourses, courseRec)
 			totalCredits += course.CreditHours
@@ -234,13 +264,11 @@ func OptimizeCourseSets(
 					pillarGraphics = Graphics{IconBg: "#f3f4f6", BorderColor: "#9ca3af"}
 				}
 
-				// --- DYNAMIC REASON GENERATOR ---
 				finalScore := c.FitScore
 				dynamicReason := c.Reason
 
 				if finalScore >= 100.0 {
 					finalScore = finalScore - 100.0
-
 					if currentTheme == "No Theme" {
 						dynamicReason = "Highly recommended for a balanced foundation."
 					} else {
@@ -249,7 +277,6 @@ func OptimizeCourseSets(
 				} else if dynamicReason == "" || strings.Contains(dynamicReason, "0.70") {
 					dynamicReason = "Fulfills core curriculum requirements."
 				}
-				// -------------------------------------
 
 				milestones = append(milestones, Milestone{
 					ID:                   c.Course.CourseID,
