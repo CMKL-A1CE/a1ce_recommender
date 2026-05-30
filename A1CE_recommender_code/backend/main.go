@@ -423,6 +423,40 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	//var scoredCourses []RecommendedCourse
+	//for _, course := range catalog.Courses {
+	// --- FILTERING ---
+	//	isCompleted := false
+	//	if course.TemplateID != "" && completedMap[normalizeCode(course.TemplateID)] {
+	//		isCompleted = true
+	//	}
+	//	if course.CourseName != "" {
+	//		cName := "NAME:" + smartCleanName(course.CourseName)
+	//		if completedMap[cName] {
+	//			isCompleted = true
+	//		}
+	//	}
+	//	if completedMap[normalizeCode(course.CourseCode)] {
+	//		isCompleted = true
+	//	}
+	//	if completedMap[normalizeCode(course.CourseID)] {
+	//		isCompleted = true
+	//	}
+
+	//	if isCompleted {
+	//		continue
+	//	}
+
+	//	if !CheckPrerequisites(course, profile) {
+	//		continue
+	//	}
+	//	if strings.HasPrefix(course.CourseCode, "SOF-") {
+	//		continue
+	//	}
+	//	if course.SemesterOffered != "" && !strings.EqualFold(course.SemesterOffered, req.Semester) {
+	//		continue
+	//	}
+
 	var scoredCourses []RecommendedCourse
 	for _, course := range catalog.Courses {
 		// --- FILTERING ---
@@ -455,6 +489,43 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		}
 		if course.SemesterOffered != "" && !strings.EqualFold(course.SemesterOffered, req.Semester) {
 			continue
+		}
+
+		// --- STRICT SEQUENTIAL PREREQUISITE ENFORCER ---
+		// Forces codes with the same prefix to be taken from least to most (e.g., 102 before 202)
+		prefix, num := parseCourseCode(course.CourseCode)
+		isBlockedBySequence := false
+
+		if prefix != "" && num > 0 {
+			for _, lowerCourse := range catalog.Courses {
+				lowerPrefix, lowerNum := parseCourseCode(lowerCourse.CourseCode)
+
+				// If we find a course in the exact same family (e.g. URD) but a lower number (102 < 202)
+				if lowerPrefix == prefix && lowerNum > 0 && lowerNum < num {
+
+					// Did the student complete this lower course?
+					lowerCompleted := false
+					if lowerCourse.TemplateID != "" && completedMap[normalizeCode(lowerCourse.TemplateID)] {
+						lowerCompleted = true
+					}
+					if lowerCourse.CourseName != "" && completedMap["NAME:"+smartCleanName(lowerCourse.CourseName)] {
+						lowerCompleted = true
+					}
+					if completedMap[normalizeCode(lowerCourse.CourseCode)] || completedMap[normalizeCode(lowerCourse.CourseID)] {
+						lowerCompleted = true
+					}
+
+					// If a lower course exists in the catalog but is NOT completed, block the higher one!
+					if !lowerCompleted {
+						isBlockedBySequence = true
+						break // No need to keep checking, it's already blocked
+					}
+				}
+			}
+		}
+
+		if isBlockedBySequence {
+			continue // Throw the higher-level course out of the pool completely
 		}
 
 		compScore := CalculateCompetencyMatchScore(course, profile)
@@ -534,7 +605,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 
 	if profile.TotalCredits.Earned < 36 {
 		// 1. The Freshman Block (This still safely stops the algorithm)
-		warningMessage = "Need a total minimum credit of 36 to generate recommendation."
+		warningMessage = "Student requesting the recommendation has recorded fewer than 36 credits. Not possible to generate recommendations."
 	} else {
 		// --- THE FIX: Generate the super-powered M2M token here ---
 		//m2mToken, err := client.GenerateInternalToken()
@@ -543,6 +614,11 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		//	return // or handle the error appropriately for your handler
 		//}
 
+		combinedStrategy := req.PreferredTheme
+		if req.WeightType != "" {
+			combinedStrategy = combinedStrategy + " " + req.WeightType
+		}
+
 		// Run the optimizer
 		roadmaps = OptimizeCourseSets(
 			scoredCourses,
@@ -550,27 +626,22 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			requirements,
 			req.MaxCreditLoad,
 			req.MaxSets,
-			req.PreferredTheme,
+			combinedStrategy,
 			graphicsMap,
 			//os.Getenv("M2M_BASE_URL"),
 			//a1ceClient.JWTToken,
 			a1ceClient,
 		)
 
-		// 2. The 0.5 Soft Cutoff Warning
-		// Loop through the generated milestones to see if any missed the 0.5 mark
-		cutoffMissed := false
-		for _, rm := range roadmaps {
-			for _, ms := range rm.A1CEMilestoneGroup.Milestones {
-				if ms.FitScore < 0.5 {
-					cutoffMissed = true
-					break
-				}
-			}
-		}
-
-		if cutoffMissed {
-			warningMessage = "Warning: Some recommended competencies did not achieve the 0.5 minimum fit score cutoff."
+		// --- THE NEW HARD ERROR CHECK ---
+		// The optimizer already filtered out the bad roadmaps.
+		// If it deleted all of them, we throw an error instead of a success.
+		if len(roadmaps) == 0 {
+			http.Error(w, "No roadmaps generated: could not find enough courses meeting the minimum fit score for the selected theme.", http.StatusBadRequest)
+			return
+		} else if len(roadmaps) < req.MaxSets {
+			// If they asked for 3 but we only got 1 or 2 distinct ones, pass a warning to the UI!
+			warningMessage = fmt.Sprintf("Requested %d roadmaps, but could only generate %d distinct option(s) for this specific theme.", req.MaxSets, len(roadmaps))
 		}
 	}
 
@@ -811,4 +882,18 @@ func fetchCompetencyDates(baseURL string, code string, semester string, token st
 
 	// Return the two extracted dates
 	return detail.Competency.SemesterDetail.StartDate, detail.Competency.SemesterDetail.EndDate
+}
+
+// --- HELPER: Sequential Prerequisite Parser ---
+// Safely splits standard codes (e.g. "URD-202", "URD 202", "URD202") into letters and numbers
+func parseCourseCode(code string) (string, int) {
+	re := regexp.MustCompile(`^([A-Za-z]+)[-\s]*(\d+)`)
+	matches := re.FindStringSubmatch(strings.TrimSpace(code))
+	if len(matches) >= 3 {
+		num, err := strconv.Atoi(matches[2])
+		if err == nil {
+			return strings.ToUpper(matches[1]), num
+		}
+	}
+	return "", 0
 }

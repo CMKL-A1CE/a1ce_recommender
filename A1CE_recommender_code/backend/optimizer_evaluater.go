@@ -3,13 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
-	"io"
 	// any other imports you have here
 )
 
@@ -95,18 +95,18 @@ func OptimizeCourseSets(
 		graphicsMap = make(map[string]Graphics)
 	}
 	if len(graphicsMap) == 0 {
-		graphicsMap["AIC"] = Graphics{IconBg: "#E51F24", BorderColor: "#B91216", Icon: ""} 
-		graphicsMap["HCD"] = Graphics{IconBg: "#FFC90E", BorderColor: "#D6A300", Icon: ""} 
-		graphicsMap["SYS"] = Graphics{IconBg: "#ED4C7B", BorderColor: "#C6305C", Icon: ""} 
-		graphicsMap["SEC"] = Graphics{IconBg: "#17C3B2", BorderColor: "#0FA394", Icon: ""} 
-		graphicsMap["ENI"] = Graphics{IconBg: "#5AB05B", BorderColor: "#438F44", Icon: ""} 
-		graphicsMap["MAT"] = Graphics{IconBg: "#3C78D8", BorderColor: "#2A5CA8", Icon: ""} 
-		graphicsMap["SCI"] = Graphics{IconBg: "#0A5C55", BorderColor: "#06423D", Icon: ""} 
-		graphicsMap["HAS"] = Graphics{IconBg: "#9628D4", BorderColor: "#751AA8", Icon: ""} 
-		graphicsMap["COM"] = Graphics{IconBg: "#F58220", BorderColor: "#CE6813", Icon: ""} 
-		graphicsMap["SOF"] = Graphics{IconBg: "#2C1E5C", BorderColor: "#1A103C", Icon: ""} 
-		graphicsMap["SEN"] = Graphics{IconBg: "#8C6E51", BorderColor: "#6B523A", Icon: ""} 
-		graphicsMap["URD"] = Graphics{IconBg: "#3B14E6", BorderColor: "#260AA3", Icon: ""} 
+		graphicsMap["AIC"] = Graphics{IconBg: "#E51F24", BorderColor: "#B91216", Icon: ""}
+		graphicsMap["HCD"] = Graphics{IconBg: "#FFC90E", BorderColor: "#D6A300", Icon: ""}
+		graphicsMap["SYS"] = Graphics{IconBg: "#ED4C7B", BorderColor: "#C6305C", Icon: ""}
+		graphicsMap["SEC"] = Graphics{IconBg: "#17C3B2", BorderColor: "#0FA394", Icon: ""}
+		graphicsMap["ENI"] = Graphics{IconBg: "#5AB05B", BorderColor: "#438F44", Icon: ""}
+		graphicsMap["MAT"] = Graphics{IconBg: "#3C78D8", BorderColor: "#2A5CA8", Icon: ""}
+		graphicsMap["SCI"] = Graphics{IconBg: "#0A5C55", BorderColor: "#06423D", Icon: ""}
+		graphicsMap["HAS"] = Graphics{IconBg: "#9628D4", BorderColor: "#751AA8", Icon: ""}
+		graphicsMap["COM"] = Graphics{IconBg: "#F58220", BorderColor: "#CE6813", Icon: ""}
+		graphicsMap["SOF"] = Graphics{IconBg: "#2C1E5C", BorderColor: "#1A103C", Icon: ""}
+		graphicsMap["SEN"] = Graphics{IconBg: "#8C6E51", BorderColor: "#6B523A", Icon: ""}
+		graphicsMap["URD"] = Graphics{IconBg: "#3B14E6", BorderColor: "#260AA3", Icon: ""}
 	}
 
 	// --- DR. SALLY'S < 36 CREDITS CHECK ---
@@ -122,27 +122,49 @@ func OptimizeCourseSets(
 		maxSets = 4
 	}
 
-	defaultThemes := []string{"code", "science", "games", "business"}
+	//defaultThemes := []string{"code", "science", "games", "business"}
 	var roadmaps []CourseSet
 
-	for i := 0; i < maxSets; i++ {
-		// 1. Figure out the base theme
-		currentTheme := strings.ToLower(strings.TrimSpace(preferredTheme))
-		displayTheme := strings.ToUpper(currentTheme)
+	// --- NEW: Track unique roadmaps to prevent duplicates ---
+	seenSignatures := make(map[string]bool)
 
-		if currentTheme == "" || currentTheme == "none" {
-			genericNames := []string{"BALANCED FOUNDATION", "GENERAL EXPLORATION", "CORE COMPETENCIES", "BROAD FOCUS"}
-			if i < len(genericNames) {
-				displayTheme = genericNames[i]
-			} else {
-				displayTheme = "GENERAL EXPLORATION"
-			}
-			currentTheme = "No Theme"
-		} else if currentTheme == "" && i < len(defaultThemes) {
-			displayTheme = strings.ToUpper(defaultThemes[i])
+	for i := 0; i < maxSets; i++ {
+		// 1. Capture the raw string FIRST for the math checks
+		rawTheme := strings.ToLower(strings.TrimSpace(preferredTheme))
+
+		// 2. SET WEIGHTS: Check the raw string before we delete any words!
+		minRequiredScore := 0.25 // Default fallback
+
+		if strings.Contains(rawTheme, "fast_track") {
+			minRequiredScore = 0.10
+		} else if strings.Contains(rawTheme, "explore_passions") {
+			minRequiredScore = 0.20
+		} else if strings.Contains(rawTheme, "plat_it_safe") {
+			minRequiredScore = 0.50
+		} else if strings.Contains(rawTheme, "custom") {
+			minRequiredScore = 0.10 // Custom weights bypass
 		}
 
-		roadmapTitle := fmt.Sprintf("PERSONALIZED ROADMAP %d - %s", i+1, displayTheme)
+		// 3. UI NAMING (Dr. Sally's Rules)
+		// Clean the string so we don't print internal tags to the frontend
+		cleanTitle := strings.ToUpper(rawTheme)
+		cleanTitle = strings.ReplaceAll(cleanTitle, "NONE", "")
+		cleanTitle = strings.ReplaceAll(cleanTitle, "CUSTOM_WEIGHTS", "")
+		cleanTitle = strings.ReplaceAll(cleanTitle, "_", " ")      // Turns FAST_TRACK into FAST TRACK
+		cleanTitle = strings.Join(strings.Fields(cleanTitle), " ") // Cleans up extra spaces
+
+		var roadmapTitle string
+		var currentTheme string
+
+		if cleanTitle == "" {
+			// If it was just "none" or "custom", it's blank now. Just number it.
+			roadmapTitle = fmt.Sprintf("PERSONALIZED ROADMAP %d", i+1)
+			currentTheme = "None"
+		} else {
+			// If there's a theme left (like "FAST TRACK"), append it cleanly.
+			roadmapTitle = fmt.Sprintf("PERSONALIZED ROADMAP %d - %s", i+1, cleanTitle)
+			currentTheme = cleanTitle
+		}
 
 		iterationCourses := make([]RecommendedCourse, len(baseScoredCourses))
 		copy(iterationCourses, baseScoredCourses)
@@ -165,8 +187,10 @@ func OptimizeCourseSets(
 			return iterationCourses[a].FitScore > iterationCourses[b].FitScore
 		})
 
-		if len(iterationCourses) > i && preferredTheme != "" {
-			iterationCourses = iterationCourses[i:]
+		// FIX: Always shift the courses so sets are unique, even without a theme!
+		shiftAmount := i * 3 // Skips the top 3 courses for each new set to force variety
+		if len(iterationCourses) > shiftAmount {
+			iterationCourses = iterationCourses[shiftAmount:]
 		}
 
 		var selectedCourses []RecommendedCourse
@@ -202,13 +226,13 @@ func OptimizeCourseSets(
 
 			// --- ONE SINGLE CLEAN CALL TO THE API ---
 			_, startDate, endDate, isAssessmentOnly, isReq, err := a1ceClient.getCompetencyDetail(course.CourseCode, "Spring 2026", studentProfile.CurriculumVersion)
-			
+
 			if err != nil {
 				fmt.Printf("(!) Error fetching detail via client for %s: %v\n", course.CourseCode, err)
-				continue 
+				continue
 			}
 
-			var apiGraphics Graphics 
+			var apiGraphics Graphics
 
 			if isAssessmentOnly {
 				continue
@@ -236,16 +260,42 @@ func OptimizeCourseSets(
 		var milestones []Milestone
 
 		if len(selectedCourses) > 0 {
-			minScore = selectedCourses[0].FitScore
-			maxScore = selectedCourses[0].FitScore
+			// We will set min/max on the first iteration inside the loop
+			firstCourse := true
 
 			for _, c := range selectedCourses {
-				sumScore += c.FitScore
-				if c.FitScore < minScore {
-					minScore = c.FitScore
+
+				// 1. PULL THE ORIGINAL UNIQUE MATH
+				finalScore := c.FitScore
+				dynamicReason := c.Reason // This holds "Strong Competency Match", etc.
+
+				// 2. STRIP THE BONUS BUT PRESERVE THE UNIQUE REASON
+				if finalScore >= 100.0 {
+					finalScore = finalScore - 100.0
+
+					// Change this from "No Theme" to "None"
+					if currentTheme != "None" {
+						// This will output: (Aligns with FAST_TRACK focus)
+						dynamicReason = fmt.Sprintf("%s (Aligns with %s focus)", c.Reason, currentTheme)
+					}
+				} else if dynamicReason == "" || strings.Contains(dynamicReason, "0.70") {
+					dynamicReason = fmt.Sprintf("Fulfills foundational requirements for %s.", c.Course.SubdomainID)
 				}
-				if c.FitScore > maxScore {
-					maxScore = c.FitScore
+
+				// 2. NOW CALCULATE THE MATH USING THE TRUE SCORE
+				sumScore += finalScore
+
+				if firstCourse {
+					minScore = finalScore
+					maxScore = finalScore
+					firstCourse = false
+				} else {
+					if finalScore < minScore {
+						minScore = finalScore
+					}
+					if finalScore > maxScore {
+						maxScore = finalScore
+					}
 				}
 
 				data := liveDataCache[c.Course.CourseCode]
@@ -262,20 +312,6 @@ func OptimizeCourseSets(
 					pillarGraphics = g
 				} else {
 					pillarGraphics = Graphics{IconBg: "#f3f4f6", BorderColor: "#9ca3af"}
-				}
-
-				finalScore := c.FitScore
-				dynamicReason := c.Reason
-
-				if finalScore >= 100.0 {
-					finalScore = finalScore - 100.0
-					if currentTheme == "No Theme" {
-						dynamicReason = "Highly recommended for a balanced foundation."
-					} else {
-						dynamicReason = fmt.Sprintf("Highly recommended for your %s focus!", strings.ToTitle(currentTheme))
-					}
-				} else if dynamicReason == "" || strings.Contains(dynamicReason, "0.70") {
-					dynamicReason = "Fulfills core curriculum requirements."
 				}
 
 				milestones = append(milestones, Milestone{
@@ -304,16 +340,43 @@ func OptimizeCourseSets(
 			Milestones: milestones,
 		}
 
-		roadmaps = append(roadmaps, CourseSet{
-			Title:              roadmapTitle,
-			Theme:              currentTheme,
-			Courses:            selectedCourses,
-			AverageScore:       avgScore,
-			MinScore:           minScore,
-			MaxScore:           maxScore,
-			TotalCredits:       int(totalCredits),
-			A1CEMilestoneGroup: group,
-		})
+		// --- NEW: DEDUPLICATION FINGERPRINT ---
+		var courseIDs []string
+		for _, c := range selectedCourses {
+			courseIDs = append(courseIDs, c.Course.CourseID)
+		}
+
+		// Alphabetize the IDs so order doesn't mess up the fingerprint
+		for a := 0; a < len(courseIDs); a++ {
+			for b := a + 1; b < len(courseIDs); b++ {
+				if courseIDs[a] > courseIDs[b] {
+					courseIDs[a], courseIDs[b] = courseIDs[b], courseIDs[a]
+				}
+			}
+		}
+		signature := strings.Join(courseIDs, ",")
+
+		if seenSignatures[signature] {
+			continue // We already generated this exact roadmap. Skip it!
+		}
+
+		// --- THE NEW 0.25 CUTOFF CHECK ---
+		// We use 0.25 instead of 0.50 based on Dr. Sally's feedback that 0.50 is too strict
+		if avgScore >= minRequiredScore {
+			seenSignatures[signature] = true // Mark this fingerprint as "seen"
+
+			roadmaps = append(roadmaps, CourseSet{
+				Title:              roadmapTitle,
+				Theme:              currentTheme,
+				Courses:            selectedCourses,
+				AverageScore:       avgScore,
+				MinScore:           minScore,
+				MaxScore:           maxScore,
+				TotalCredits:       int(totalCredits),
+				A1CEMilestoneGroup: group,
+			})
+		}
+
 	}
 
 	return roadmaps

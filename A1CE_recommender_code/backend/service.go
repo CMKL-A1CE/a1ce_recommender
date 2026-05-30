@@ -100,6 +100,12 @@ func (s *RecommenderService) GenerateRecommendations(req *RecommendationRequest)
 		a1ceClient,
 	)
 
+	// --- THE FAIL-SAFE ERROR TRIGGER ---
+	if len(roadmaps) == 0 {
+		// Return an explicit error payload to the frontend
+		return nil, fmt.Errorf("No roadmaps generated: could not find enough courses meeting the minimum fit score of 0.25")
+	}
+
 	var recommendedSet []RecommendedCourse
 	if len(roadmaps) > 0 {
 		recommendedSet = roadmaps[0].Courses
