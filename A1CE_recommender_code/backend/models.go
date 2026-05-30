@@ -14,6 +14,7 @@ type RecommendationRequest struct {
 	PreviousSemester string                 `json:"previous_semester,omitempty"`
 	PreferredTheme   string                 `json:"preferred_theme"`
 	WeightType       string                 `json:"weight_type,omitempty"`
+	MinFitScore      float64                `json:"min_fit_score,omitempty"` //New for weight cut off logic
 }
 
 type RecommendationFilters struct {

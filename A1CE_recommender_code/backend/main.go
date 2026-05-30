@@ -345,6 +345,10 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch profile", err.Error())
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(req.Semester), strings.TrimSpace(profile.Semester)) {
+		sendError(w, http.StatusBadRequest, "INVALID_SEMESTER", "Cannot generate AI recommendations for a student's entering semester due to lack of historical data. Please use the standard first-year roadmap.", "")
+		return
+	}
 
 	idMap, _ := loadIdentityMap("course_identities.json")
 	completedMap := fetchAllCompletedIdentityCodes(a1ceClient, req.StudentID, profile, idMap)
@@ -491,34 +495,44 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// --- STRICT SEQUENTIAL PREREQUISITE ENFORCER ---
-		// Forces codes with the same prefix to be taken from least to most (e.g., 102 before 202)
+		// --- STRICT SEQUENTIAL PREREQUISITE ENFORCER (V2: Sub-Group Aware) ---
+		// Forces courses in the EXACT same sub-group to be taken in order (e.g., 401 before 402)
 		prefix, num := parseCourseCode(course.CourseCode)
 		isBlockedBySequence := false
 
 		if prefix != "" && num > 0 {
+			// MATH TRICK: 402 / 10 = 40 (The Family). 402 % 10 = 2 (The Step).
+			courseFamily := num / 10
+			courseStep := num % 10
+
 			for _, lowerCourse := range catalog.Courses {
 				lowerPrefix, lowerNum := parseCourseCode(lowerCourse.CourseCode)
 
-				// If we find a course in the exact same family (e.g. URD) but a lower number (102 < 202)
-				if lowerPrefix == prefix && lowerNum > 0 && lowerNum < num {
+				if lowerPrefix == prefix && lowerNum > 0 {
+					lowerFamily := lowerNum / 10
+					lowerStep := lowerNum % 10
 
-					// Did the student complete this lower course?
-					lowerCompleted := false
-					if lowerCourse.TemplateID != "" && completedMap[normalizeCode(lowerCourse.TemplateID)] {
-						lowerCompleted = true
-					}
-					if lowerCourse.CourseName != "" && completedMap["NAME:"+smartCleanName(lowerCourse.CourseName)] {
-						lowerCompleted = true
-					}
-					if completedMap[normalizeCode(lowerCourse.CourseCode)] || completedMap[normalizeCode(lowerCourse.CourseID)] {
-						lowerCompleted = true
-					}
+					// ONLY block if they are in the exact same family (e.g., both 40)
+					// AND the other course is a lower sequence step (e.g., 1 < 2)
+					if lowerFamily == courseFamily && lowerStep < courseStep {
 
-					// If a lower course exists in the catalog but is NOT completed, block the higher one!
-					if !lowerCompleted {
-						isBlockedBySequence = true
-						break // No need to keep checking, it's already blocked
+						// Did the student complete this lower course?
+						lowerCompleted := false
+						if lowerCourse.TemplateID != "" && completedMap[normalizeCode(lowerCourse.TemplateID)] {
+							lowerCompleted = true
+						}
+						if lowerCourse.CourseName != "" && completedMap["NAME:"+smartCleanName(lowerCourse.CourseName)] {
+							lowerCompleted = true
+						}
+						if completedMap[normalizeCode(lowerCourse.CourseCode)] || completedMap[normalizeCode(lowerCourse.CourseID)] {
+							lowerCompleted = true
+						}
+
+						// If the lower step is NOT completed, block the higher step!
+						if !lowerCompleted {
+							isBlockedBySequence = true
+							break
+						}
 					}
 				}
 			}
@@ -619,6 +633,11 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			combinedStrategy = combinedStrategy + " " + req.WeightType
 		}
 
+		minScoreCutoff := req.MinFitScore
+		if minScoreCutoff <= 0 {
+			minScoreCutoff = 0.25
+		}
+
 		// Run the optimizer
 		roadmaps = OptimizeCourseSets(
 			scoredCourses,
@@ -631,6 +650,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			//os.Getenv("M2M_BASE_URL"),
 			//a1ceClient.JWTToken,
 			a1ceClient,
+			minScoreCutoff,
 		)
 
 		// --- THE NEW HARD ERROR CHECK ---

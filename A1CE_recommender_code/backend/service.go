@@ -83,8 +83,8 @@ func (s *RecommenderService) GenerateRecommendations(req *RecommendationRequest)
 		graphicsMap["SCI"] = Graphics{IconBg: "#0A5C55", BorderColor: "#06423D", Icon: ""} // Science (Dark Green/Teal)
 		graphicsMap["HAS"] = Graphics{IconBg: "#9628D4", BorderColor: "#751AA8", Icon: ""} // Arts & Humanities (Purple)
 		graphicsMap["COM"] = Graphics{IconBg: "#F58220", BorderColor: "#CE6813", Icon: ""} // Communications (Orange)
-		graphicsMap["SOF"] = Graphics{IconBg: "#2C1E5C", BorderColor: "#1A103C", Icon: ""} // Software Engineering (Dark Indigo)
-		graphicsMap["SEN"] = Graphics{IconBg: "#8C6E51", BorderColor: "#6B523A", Icon: ""} // Soft Skills (Brown/Bronze)
+		graphicsMap["SEN"] = Graphics{IconBg: "#5E2B97", BorderColor: "#451B75", Icon: ""} // Software Engineering (Dark Indigo)
+		graphicsMap["SOF"] = Graphics{IconBg: "#8C6E51", BorderColor: "#6B523A", Icon: ""} // Soft Skills (Brown/Bronze)
 		graphicsMap["URD"] = Graphics{IconBg: "#3B14E6", BorderColor: "#260AA3", Icon: ""} // URD Research (Electric Blue/Purple)
 	}
 
@@ -98,6 +98,7 @@ func (s *RecommenderService) GenerateRecommendations(req *RecommendationRequest)
 		"",
 		graphicsMap,
 		a1ceClient,
+		0.25,
 	)
 
 	// --- THE FAIL-SAFE ERROR TRIGGER ---

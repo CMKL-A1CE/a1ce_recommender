@@ -7,7 +7,9 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	// any other imports you have here
@@ -89,6 +91,7 @@ func OptimizeCourseSets(
 	preferredTheme string,
 	graphicsMap map[string]Graphics,
 	a1ceClient *A1CEClient, // <--- Correctly passing the client here!
+	minRequiredScore float64,
 ) []CourseSet {
 
 	if graphicsMap == nil {
@@ -104,8 +107,8 @@ func OptimizeCourseSets(
 		graphicsMap["SCI"] = Graphics{IconBg: "#0A5C55", BorderColor: "#06423D", Icon: ""}
 		graphicsMap["HAS"] = Graphics{IconBg: "#9628D4", BorderColor: "#751AA8", Icon: ""}
 		graphicsMap["COM"] = Graphics{IconBg: "#F58220", BorderColor: "#CE6813", Icon: ""}
-		graphicsMap["SOF"] = Graphics{IconBg: "#2C1E5C", BorderColor: "#1A103C", Icon: ""}
-		graphicsMap["SEN"] = Graphics{IconBg: "#8C6E51", BorderColor: "#6B523A", Icon: ""}
+		graphicsMap["SOF"] = Graphics{IconBg: "#8C6E51", BorderColor: "#6B523A", Icon: ""}
+		graphicsMap["SEN"] = Graphics{IconBg: "#5E2B97", BorderColor: "#451B75", Icon: ""}
 		graphicsMap["URD"] = Graphics{IconBg: "#3B14E6", BorderColor: "#260AA3", Icon: ""}
 	}
 
@@ -133,17 +136,17 @@ func OptimizeCourseSets(
 		rawTheme := strings.ToLower(strings.TrimSpace(preferredTheme))
 
 		// 2. SET WEIGHTS: Check the raw string before we delete any words!
-		minRequiredScore := 0.25 // Default fallback
+		//minRequiredScore := 0.25 // Default fallback
 
-		if strings.Contains(rawTheme, "fast_track") {
-			minRequiredScore = 0.10
-		} else if strings.Contains(rawTheme, "explore_passions") {
-			minRequiredScore = 0.20
-		} else if strings.Contains(rawTheme, "plat_it_safe") {
-			minRequiredScore = 0.50
-		} else if strings.Contains(rawTheme, "custom") {
-			minRequiredScore = 0.10 // Custom weights bypass
-		}
+		//if strings.Contains(rawTheme, "fast_track") {
+		//	minRequiredScore = 0.10
+		//} else if strings.Contains(rawTheme, "explore_passions") {
+		//	minRequiredScore = 0.12
+		//} else if strings.Contains(rawTheme, "plat_it_safe") {
+		//	minRequiredScore = 0.50
+		//} else if strings.Contains(rawTheme, "custom") {
+		//	minRequiredScore = 0.10 // Custom weights bypass
+		//}
 
 		// 3. UI NAMING (Dr. Sally's Rules)
 		// Clean the string so we don't print internal tags to the frontend
@@ -262,6 +265,27 @@ func OptimizeCourseSets(
 		if len(selectedCourses) > 0 {
 			// We will set min/max on the first iteration inside the loop
 			firstCourse := true
+
+			// --- DR. SALLY FIX 1: GROUP BY PILLAR & NUMBER ---
+			// We sort in the backend so the UI receives it perfectly organized!
+			for a := 0; a < len(selectedCourses); a++ {
+				for b := a + 1; b < len(selectedCourses); b++ {
+					prefixA, numA := getPrefixAndNum(selectedCourses[a].Course.CourseCode)
+					prefixB, numB := getPrefixAndNum(selectedCourses[b].Course.CourseCode)
+
+					if prefixA != prefixB {
+						// Different pillars: Sort alphabetically (e.g., AIC comes before SEN)
+						if prefixA > prefixB {
+							selectedCourses[a], selectedCourses[b] = selectedCourses[b], selectedCourses[a]
+						}
+					} else {
+						// Same pillar: Sort numerically (e.g., 101 comes before 102)
+						if numA > numB {
+							selectedCourses[a], selectedCourses[b] = selectedCourses[b], selectedCourses[a]
+						}
+					}
+				}
+			}
 
 			for _, c := range selectedCourses {
 
@@ -523,4 +547,15 @@ func unique(slice []string) []string {
 		}
 	}
 	return result
+}
+
+// --- HELPER: Safe Prefix and Number Extractor ---
+func getPrefixAndNum(code string) (string, int) {
+	re := regexp.MustCompile(`^([A-Za-z]+)[-\s]*(\d+)`)
+	matches := re.FindStringSubmatch(strings.TrimSpace(code))
+	if len(matches) >= 3 {
+		num, _ := strconv.Atoi(matches[2])
+		return strings.ToUpper(matches[1]), num
+	}
+	return "", 0
 }
