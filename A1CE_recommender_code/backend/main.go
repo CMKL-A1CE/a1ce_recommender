@@ -656,9 +656,20 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		// --- THE NEW HARD ERROR CHECK ---
 		// The optimizer already filtered out the bad roadmaps.
 		// If it deleted all of them, we throw an error instead of a success.
+		//	if len(roadmaps) == 0 {
+		//		http.Error(w, "No roadmaps generated: could not find enough courses meeting the minimum fit score for the selected theme.", http.StatusBadRequest)
+		//		return
+		//	} else if len(roadmaps) < req.MaxSets {
+		// If they asked for 3 but we only got 1 or 2 distinct ones, pass a warning to the UI!
+		//		warningMessage = fmt.Sprintf("Requested %d roadmaps, but could only generate %d distinct option(s) for this specific theme.", req.MaxSets, len(roadmaps))
+		//	}
+		//}
+
 		if len(roadmaps) == 0 {
-			http.Error(w, "No roadmaps generated: could not find enough courses meeting the minimum fit score for the selected theme.", http.StatusBadRequest)
+			// --- SI THU'S JSON ERROR FIX ---
+			sendError(w, http.StatusBadRequest, "NO_ROADMAPS_GENERATED", "No roadmaps generated: could not find enough courses meeting the minimum fit score for the selected theme.", "")
 			return
+			// -------------------------------
 		} else if len(roadmaps) < req.MaxSets {
 			// If they asked for 3 but we only got 1 or 2 distinct ones, pass a warning to the UI!
 			warningMessage = fmt.Sprintf("Requested %d roadmaps, but could only generate %d distinct option(s) for this specific theme.", req.MaxSets, len(roadmaps))
