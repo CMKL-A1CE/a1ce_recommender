@@ -4,26 +4,6 @@ import (
 	"math"
 )
 
-// CheckPrerequisites verifies if student meets course requirements
-func CheckPrerequisites(course Course, profile *StudentProfile) bool {
-	// Check if student has completed prerequisite courses
-	for _, prereqID := range course.Prerequisites {
-		if !contains(profile.CompletedCourses, prereqID) {
-			return false
-		}
-	}
-
-	// Check competency prerequisites with grade requirements
-	for comp, minGrade := range course.RequiredCompetencies {
-		studentGrade, hasComp := profile.Competencies[comp]
-		if !hasComp || studentGrade < minGrade {
-			return false
-		}
-	}
-
-	return true
-}
-
 // CalculateCompetencyMatchScore measures how well student's competencies match course
 func CalculateCompetencyMatchScore(course Course, profile *StudentProfile) float64 {
 	requiredComps := getMapKeys(course.RequiredCompetencies)

@@ -340,11 +340,17 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	} else if req.WeightType == "balanced" {
 		compW, intW, progW = 0.33, 0.33, 0.34
 	}
+
 	profile, err := a1ceClient.GetStudentProfile(req.StudentID)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "A1CE_API_ERROR", "Failed to fetch profile", err.Error())
 		return
 	}
+
+	if profile.CurriculumVersion == 0 {
+		profile.CurriculumVersion = 7
+	}
+
 	if strings.EqualFold(strings.TrimSpace(req.Semester), strings.TrimSpace(profile.Semester)) {
 		sendError(w, http.StatusBadRequest, "INVALID_SEMESTER", "Cannot generate AI recommendations for a student's entering semester due to lack of historical data. Please use the standard first-year roadmap.", "")
 		return
@@ -427,43 +433,12 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	//var scoredCourses []RecommendedCourse
-	//for _, course := range catalog.Courses {
-	// --- FILTERING ---
-	//	isCompleted := false
-	//	if course.TemplateID != "" && completedMap[normalizeCode(course.TemplateID)] {
-	//		isCompleted = true
-	//	}
-	//	if course.CourseName != "" {
-	//		cName := "NAME:" + smartCleanName(course.CourseName)
-	//		if completedMap[cName] {
-	//			isCompleted = true
-	//		}
-	//	}
-	//	if completedMap[normalizeCode(course.CourseCode)] {
-	//		isCompleted = true
-	//	}
-	//	if completedMap[normalizeCode(course.CourseID)] {
-	//		isCompleted = true
-	//	}
+	// --- DR. SALLY'S MASTER PRE-FILTER ---
+	// We filter the catalog strictly ONCE before processing any scores.
+	var validCandidatePool []Course
 
-	//	if isCompleted {
-	//		continue
-	//	}
-
-	//	if !CheckPrerequisites(course, profile) {
-	//		continue
-	//	}
-	//	if strings.HasPrefix(course.CourseCode, "SOF-") {
-	//		continue
-	//	}
-	//	if course.SemesterOffered != "" && !strings.EqualFold(course.SemesterOffered, req.Semester) {
-	//		continue
-	//	}
-
-	var scoredCourses []RecommendedCourse
 	for _, course := range catalog.Courses {
-		// --- FILTERING ---
+		// 1. Is it already completed? Skip it.
 		isCompleted := false
 		if course.TemplateID != "" && completedMap[normalizeCode(course.TemplateID)] {
 			isCompleted = true
@@ -480,43 +455,49 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		if completedMap[normalizeCode(course.CourseID)] {
 			isCompleted = true
 		}
-
 		if isCompleted {
-			continue
+			continue // Student already took it! Dump it.
 		}
+
+		// 2. DOES IT PASS EXPLICIT PREREQUISITES?
+		baseURL := os.Getenv("M2M_BASE_URL")
+
+		// --- CURRICULUM VERSION FALLBACK PATCH ---
+		lookupVersion := profile.CurriculumVersion
+		if lookupVersion <= 0 {
+			lookupVersion = 7 // Default to active production rules if profile is unassigned
+		}
+		course.Prerequisites = fetchPrerequisites(baseURL, course.CourseCode, req.Semester, a1ceClient.JWTToken, lookupVersion)
 
 		if !CheckPrerequisites(course, profile) {
-			continue
+			continue // Missing prerequisite! Dump it permanently.
 		}
+
+		// 3. Skip SOF courses
 		if strings.HasPrefix(course.CourseCode, "SOF-") {
 			continue
 		}
+
+		// 4. Semester Availability
 		if course.SemesterOffered != "" && !strings.EqualFold(course.SemesterOffered, req.Semester) {
 			continue
 		}
 
-		// --- STRICT SEQUENTIAL PREREQUISITE ENFORCER (V2: Sub-Group Aware) ---
-		// Forces courses in the EXACT same sub-group to be taken in order (e.g., 401 before 402)
+		// --- STRICT SEQUENTIAL PREREQUISITE ENFORCER (Sub-Group Aware) ---
 		prefix, num := parseCourseCode(course.CourseCode)
 		isBlockedBySequence := false
 
 		if prefix != "" && num > 0 {
-			// MATH TRICK: 402 / 10 = 40 (The Family). 402 % 10 = 2 (The Step).
 			courseFamily := num / 10
 			courseStep := num % 10
 
 			for _, lowerCourse := range catalog.Courses {
 				lowerPrefix, lowerNum := parseCourseCode(lowerCourse.CourseCode)
-
 				if lowerPrefix == prefix && lowerNum > 0 {
 					lowerFamily := lowerNum / 10
 					lowerStep := lowerNum % 10
 
-					// ONLY block if they are in the exact same family (e.g., both 40)
-					// AND the other course is a lower sequence step (e.g., 1 < 2)
 					if lowerFamily == courseFamily && lowerStep < courseStep {
-
-						// Did the student complete this lower course?
 						lowerCompleted := false
 						if lowerCourse.TemplateID != "" && completedMap[normalizeCode(lowerCourse.TemplateID)] {
 							lowerCompleted = true
@@ -527,8 +508,6 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 						if completedMap[normalizeCode(lowerCourse.CourseCode)] || completedMap[normalizeCode(lowerCourse.CourseID)] {
 							lowerCompleted = true
 						}
-
-						// If the lower step is NOT completed, block the higher step!
 						if !lowerCompleted {
 							isBlockedBySequence = true
 							break
@@ -542,11 +521,48 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			continue // Throw the higher-level course out of the pool completely
 		}
 
+		if prefix == "URD" {
+			isEligibleURD := true
+			// Scan the catalog for any lower URD courses
+			for _, otherCourse := range catalog.Courses {
+				otherPrefix, otherNum := parseCourseCode(otherCourse.CourseCode)
+
+				// If we find a lower URD course (e.g., URD-101 is lower than URD-322)
+				if otherPrefix == "URD" && otherNum < num {
+
+					// Did the student complete this lower course?
+					lowerCompleted := false
+					if otherCourse.TemplateID != "" && completedMap[normalizeCode(otherCourse.TemplateID)] {
+						lowerCompleted = true
+					}
+					if completedMap[normalizeCode(otherCourse.CourseCode)] || completedMap[normalizeCode(otherCourse.CourseID)] {
+						lowerCompleted = true
+					}
+
+					// If a lower URD course is missing, they cannot take this higher one!
+					if !lowerCompleted {
+						isEligibleURD = false
+						break
+					}
+				}
+			}
+			if !isEligibleURD {
+				continue // Dump the higher URD course permanently
+			}
+		}
+
+		// If the course survived all checks, add it to the clean candidate pool!
+		validCandidatePool = append(validCandidatePool, course)
+	}
+
+	// --- NOW PROCESS SCORES FOR THE VALID CANDIDATES ---
+	var scoredCourses []RecommendedCourse
+	for _, course := range validCandidatePool {
 		compScore := CalculateCompetencyMatchScore(course, profile)
 		interestScore := CalculateInterestScore(course, profile)
 		progScore := CalculateProgramProgressScore(course, profile, requirements)
 
-		// --- 2. APPLY DYNAMIC WEIGHTS TO THE MATH ---
+		// 2. APPLY DYNAMIC WEIGHTS TO THE MATH
 		fitScore := (compW * compScore) + (intW * interestScore) + (progW * progScore)
 
 		// Determine the dominant factor for the Reason string
@@ -555,12 +571,23 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		weightedInt := intW * interestScore
 		weightedProg := progW * progScore
 
+		// --- DYNAMIC ADJECTIVES FIX ---
+		// Assign accurate descriptive words based on the raw score thresholds
+		getAdjective := func(score float64) string {
+			if score >= 0.25 {
+				return "Exceptional"
+			} else if score >= 0.15 {
+				return "Strong"
+			}
+			return "Moderate"
+		}
+
 		if weightedComp >= weightedInt && weightedComp >= weightedProg {
-			reason = fmt.Sprintf("Strong Competency Match (Score: %.2f)", compScore)
+			reason = fmt.Sprintf("%s Competency Match (Score: %.2f)", getAdjective(compScore), compScore)
 		} else if weightedInt >= weightedComp && weightedInt >= weightedProg {
-			reason = fmt.Sprintf("Strong Interest Alignment (Score: %.2f)", interestScore)
+			reason = fmt.Sprintf("%s Interest Alignment (Score: %.2f)", getAdjective(interestScore), interestScore)
 		} else {
-			reason = fmt.Sprintf("High Program Progress Value (Score: %.2f)", progScore)
+			reason = fmt.Sprintf("%s Program Progress Value (Score: %.2f)", getAdjective(progScore), progScore)
 		}
 
 		displayCourse := CourseOutput{
@@ -599,6 +626,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// --- SORTING LOOP ---
 	for i := 0; i < len(scoredCourses); i++ {
 		for j := i + 1; j < len(scoredCourses); j++ {
 			if scoredCourses[i].FitScore < scoredCourses[j].FitScore {
@@ -621,13 +649,6 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		// 1. The Freshman Block (This still safely stops the algorithm)
 		warningMessage = "Student requesting the recommendation has recorded fewer than 36 credits. Not possible to generate recommendations."
 	} else {
-		// --- THE FIX: Generate the super-powered M2M token here ---
-		//m2mToken, err := client.GenerateInternalToken()
-		//if err != nil {
-		//	fmt.Println("Error generating M2M token:", err)
-		//	return // or handle the error appropriately for your handler
-		//}
-
 		combinedStrategy := req.PreferredTheme
 		if req.WeightType != "" {
 			combinedStrategy = combinedStrategy + " " + req.WeightType
@@ -647,23 +668,9 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			req.MaxSets,
 			combinedStrategy,
 			graphicsMap,
-			//os.Getenv("M2M_BASE_URL"),
-			//a1ceClient.JWTToken,
 			a1ceClient,
 			minScoreCutoff,
 		)
-
-		// --- THE NEW HARD ERROR CHECK ---
-		// The optimizer already filtered out the bad roadmaps.
-		// If it deleted all of them, we throw an error instead of a success.
-		//	if len(roadmaps) == 0 {
-		//		http.Error(w, "No roadmaps generated: could not find enough courses meeting the minimum fit score for the selected theme.", http.StatusBadRequest)
-		//		return
-		//	} else if len(roadmaps) < req.MaxSets {
-		// If they asked for 3 but we only got 1 or 2 distinct ones, pass a warning to the UI!
-		//		warningMessage = fmt.Sprintf("Requested %d roadmaps, but could only generate %d distinct option(s) for this specific theme.", req.MaxSets, len(roadmaps))
-		//	}
-		//}
 
 		if len(roadmaps) == 0 {
 			// --- SI THU'S JSON ERROR FIX ---
@@ -680,20 +687,18 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	var a1ceRoadmaps []A1CERoadmap
 
 	for i, rm := range roadmaps {
-		// Notice how clean this is now! We deleted the redundant color/title loop
-		// because OptimizeCourseSets already did it perfectly.
-
 		a1ceRoadmaps = append(a1ceRoadmaps, A1CERoadmap{
-			ID:              fmt.Sprintf("roadmap-gen-%d", i),
-			Title:           rm.Title, // <--- Grabs Dr. Sally's new ordinal title directly!
-			Year:            2026,
-			Semester:        req.Semester,
-			Credits:         rm.TotalCredits,
-			AverageScore:    rm.AverageScore,
-			MinScore:        rm.MinScore,
-			MaxScore:        rm.MaxScore,
-			MilestoneGroups: []MilestoneGroup{rm.A1CEMilestoneGroup},
-			UniversityCode:  "CMKL",
+			ID:                fmt.Sprintf("roadmap-gen-%d", i),
+			Title:             rm.Title,
+			Year:              2026,
+			Semester:          req.Semester,
+			Credits:           rm.TotalCredits,
+			AverageScore:      rm.AverageScore,
+			MinScore:          rm.MinScore,
+			MaxScore:          rm.MaxScore,
+			CurriculumVersion: profile.CurriculumVersion,
+			MilestoneGroups:   []MilestoneGroup{rm.A1CEMilestoneGroup},
+			UniversityCode:    "CMKL",
 		})
 	}
 
@@ -701,7 +706,7 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	response := A1CEResponse{
 		RecommendedRoadmaps: a1ceRoadmaps,
 		Status:              "success",
-		Warning:             warningMessage, // <--- Passes the text warning to the UI
+		Warning:             warningMessage,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -927,4 +932,66 @@ func parseCourseCode(code string) (string, int) {
 		}
 	}
 	return "", 0
+}
+
+// --- BULLETPROOF PREREQUISITE CHECKER (V3: Object-Based) ---
+func CheckPrerequisites(course Course, profile *StudentProfile) bool {
+	// If the course has no prerequisites attached, they are cleared!
+	if len(course.Prerequisites) == 0 {
+		return true
+	}
+
+	// Create a fast-lookup map of everything the student has completed, stripped of formatting
+	completedClean := make(map[string]bool)
+	for _, comp := range profile.CompletedCourses {
+		cleanComp := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(comp, "-", ""), " ", ""))
+		completedClean[cleanComp] = true
+	}
+
+	// Loop through the complex Prerequisite Objects
+	for _, prereqObj := range course.Prerequisites {
+		// Target the specific Code string (e.g., "MAT-211") from the API object
+		rawCode := prereqObj.PrerequisiteCompetencyCode
+		cleanPrereq := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(rawCode, "-", ""), " ", ""))
+
+		// If they are missing this specific prerequisite, block the course instantly
+		if !completedClean[cleanPrereq] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// --- HELPER: Fetch Prerequisites ---
+func fetchPrerequisites(baseURL string, code string, semester string, token string, currVer int) []CompetencyPrerequisiteInfo {
+	if baseURL == "" {
+		return nil
+	}
+
+	encodedSemester := url.QueryEscape(semester)
+	// INJECT THE DYNAMIC CURRICULUM VERSION HERE
+	apiURL := fmt.Sprintf("%s/api/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=%d&semester_name=%s", baseURL, code, currVer, encodedSemester)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	var detail CompetencyDetailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		return nil
+	}
+
+	return detail.Competency.Prerequisites
 }

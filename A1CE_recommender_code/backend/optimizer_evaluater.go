@@ -186,8 +186,18 @@ func OptimizeCourseSets(
 			}
 		}
 
+		// --- DETERMINISTIC TIE-BREAKER SORT (FPU VARIANCE FIX) ---
 		sort.Slice(iterationCourses, func(a, b int) bool {
-			return iterationCourses[a].FitScore > iterationCourses[b].FitScore
+			scoreA := iterationCourses[a].FitScore
+			scoreB := iterationCourses[b].FitScore
+
+			// If the difference is microscopic, treat it as a tie and alphabetize!
+			if math.Abs(scoreA-scoreB) < 0.00001 {
+				return iterationCourses[a].Course.CourseCode < iterationCourses[b].Course.CourseCode
+			}
+
+			// Otherwise, sort by highest score first
+			return scoreA > scoreB
 		})
 
 		// FIX: Always shift the courses so sets are unique, even without a theme!
@@ -293,17 +303,19 @@ func OptimizeCourseSets(
 				finalScore := c.FitScore
 				dynamicReason := c.Reason // This holds "Strong Competency Match", etc.
 
-				// 2. STRIP THE BONUS BUT PRESERVE THE UNIQUE REASON
-				if finalScore >= 100.0 {
-					finalScore = finalScore - 100.0
+				// --- BUG 1 & 2 FIX: SCORES AND SAFE REASONS ---
+				// Grab the specific course's score, NOT the roadmap average
+				courseSpecificScore := c.FitScore
 
-					// Change this from "No Theme" to "None"
+				if courseSpecificScore >= 100.0 {
+					courseSpecificScore = courseSpecificScore - 100.0
+
 					if currentTheme != "None" {
-						// This will output: (Aligns with FAST_TRACK focus)
 						dynamicReason = fmt.Sprintf("%s (Aligns with %s focus)", c.Reason, currentTheme)
 					}
 				} else if dynamicReason == "" || strings.Contains(dynamicReason, "0.70") {
-					dynamicReason = fmt.Sprintf("Fulfills foundational requirements for %s.", c.Course.SubdomainID)
+					// SECURITY FIX: Never expose SubdomainID (UUIDs). Use CourseCode!
+					dynamicReason = fmt.Sprintf("Fulfills foundational requirements for %s.", c.Course.CourseCode)
 				}
 
 				// 2. NOW CALCULATE THE MATH USING THE TRUE SCORE
@@ -346,7 +358,7 @@ func OptimizeCourseSets(
 					CompetencyCode:       c.Course.CourseCode,
 					Credits:              int(c.Course.CreditHours),
 					SubdomainTitle:       c.Course.SubdomainID,
-					FitScore:             finalScore,
+					FitScore:             courseSpecificScore,
 					Reason:               dynamicReason,
 					Graphics:             pillarGraphics,
 					StartDate:            data.startDate,
@@ -399,8 +411,16 @@ func OptimizeCourseSets(
 				TotalCredits:       int(totalCredits),
 				A1CEMilestoneGroup: group,
 			})
-		}
 
+			for _, selectedCourse := range selectedCourses {
+				for k := range baseScoredCourses {
+					if baseScoredCourses[k].Course.CourseCode == selectedCourse.Course.CourseCode {
+						// Apply a 90% penalty to the FitScore
+						baseScoredCourses[k].FitScore = baseScoredCourses[k].FitScore * 0.1
+					}
+				}
+			}
+		}
 	}
 
 	return roadmaps

@@ -395,7 +395,7 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 			IsRequired:           ac.IsRequired,
 			RequiredCompetencies: make(map[string]float64),
 			TeachesCompetencies:  []string{},
-			Prerequisites:        []string{},
+			Prerequisites:        []CompetencyPrerequisiteInfo{},
 		})
 	}
 	return courses, nil

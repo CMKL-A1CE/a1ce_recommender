@@ -40,21 +40,34 @@ type StudentProfile struct {
 }
 
 // Course structures - Internal Logic & Catalog Response
+type CompetencyPrerequisiteInfo struct {
+	Id                          string `json:"id"`
+	dbId                        string
+	FocusCompetencyId           string  `json:"focus_competency_id"`
+	FocusCompetencyCode         string  `json:"focus_competency_code"`
+	FocusCompetencyTitle        string  `json:"focus_competency_title"`
+	PrerequisiteCompetencyId    string  `json:"prerequisite_competency_id"`
+	PrerequisiteCompetencyCode  string  `json:"prerequisite_competency_code"`
+	PrerequisiteCompetencyTitle string  `json:"prerequisite_competency_title"`
+	Weight                      float32 `json:"weight"`
+	UniversityCode              string  `json:"university_code"`
+}
+
 type Course struct {
-	CourseID             string             `json:"course_id"`
-	TemplateID           string             `json:"identity_code,omitempty"` // RENAMED: template_id -> identity_code
-	CourseCode           string             `json:"course_code"`
-	CourseName           string             `json:"course_name"`
-	Description          string             `json:"description,omitempty"`
-	CreditHours          float64            `json:"credit_hours"`
-	SubdomainID          string             `json:"subdomain_id"`
-	SubdomainName        string             `json:"subdomain_name,omitempty"`
-	RequiredCompetencies map[string]float64 `json:"required_competencies,omitempty"`
-	TeachesCompetencies  []string           `json:"teaches_competencies,omitempty"`
-	Prerequisites        []string           `json:"prerequisites,omitempty"`
-	SemesterOffered      string             `json:"semester_offered,omitempty"`
-	IsCore               bool               `json:"is_core"`
-	IsRequired           bool               `json:"is_required"`
+	CourseID             string                       `json:"course_id"`
+	TemplateID           string                       `json:"identity_code,omitempty"` // RENAMED: template_id -> identity_code
+	CourseCode           string                       `json:"course_code"`
+	CourseName           string                       `json:"course_name"`
+	Description          string                       `json:"description,omitempty"`
+	CreditHours          float64                      `json:"credit_hours"`
+	SubdomainID          string                       `json:"subdomain_id"`
+	SubdomainName        string                       `json:"subdomain_name,omitempty"`
+	RequiredCompetencies map[string]float64           `json:"required_competencies,omitempty"`
+	TeachesCompetencies  []string                     `json:"teaches_competencies,omitempty"`
+	Prerequisites        []CompetencyPrerequisiteInfo `json:"prerequisites,omitempty"`
+	SemesterOffered      string                       `json:"semester_offered,omitempty"`
+	IsCore               bool                         `json:"is_core"`
+	IsRequired           bool                         `json:"is_required"`
 }
 
 // CourseOutput - For Recommendation Response
@@ -283,8 +296,9 @@ type PillarInfo struct {
 // --- API Response Schemas for fetching Dates ---
 type CompetencyDetailResponse struct {
 	Competency struct {
-		Required       bool     `json:"required"` // <--- NEW: Grabs the required boolean
-		Graphics       Graphics `json:"graphics"` // <--- NEW: Reuses your existing Graphics struct!
+		Required       bool                         `json:"required"` // <--- NEW: Grabs the required boolean
+		Graphics       Graphics                     `json:"graphics"` // <--- NEW: Reuses your existing Graphics struct!
+		Prerequisites  []CompetencyPrerequisiteInfo `json:"prerequisites"`
 		SemesterDetail struct {
 			StartDate      string `json:"start_date"`
 			EndDate        string `json:"end_date"`
