@@ -220,8 +220,6 @@ func OptimizeCourseSets(
 		}
 		liveDataCache := make(map[string]apiData)
 
-		requiredCount := 0
-
 		// 1. SELECTION & FILTERING LOOP
 		for _, courseRec := range iterationCourses {
 			course := courseRec.Course
@@ -268,14 +266,6 @@ func OptimizeCourseSets(
 				continue
 			}
 
-			// --- THE DR. SALLY QUOTA RULE (THE BOUNCER) ---
-			// If we haven't found at least 4 required courses yet, and this one isn't required...
-			// Skip it! This forces the algorithm to prioritize graduation requirements.
-			if !isReq && requiredCount < 4 {
-				continue
-			}
-			// ----------------------------------------------
-
 			liveDataCache[course.CourseCode] = apiData{
 				startDate:  startDate,
 				endDate:    endDate,
@@ -287,13 +277,6 @@ func OptimizeCourseSets(
 			selectedCourses = append(selectedCourses, courseRec)
 			totalCredits += course.CreditHours
 			subdomainCount[course.SubdomainID]++
-
-			// --- TICK THE QUOTA COUNTER ---
-			// If the course we just added was required, count it!
-			if isReq {
-				requiredCount++
-			}
-			// ------------------------------
 
 			if totalCredits >= targetCredits {
 				break
