@@ -1,54 +1,18 @@
-2026/06/05 00:04:42 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/06/05 00:04:42 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
-2026/06/05 00:04:42 ===========================================
-2026/06/05 00:04:42 A1CE Course Recommender API Server
-2026/06/05 00:04:42 ===========================================
-2026/06/05 00:04:42 Server listening on: http://localhost:8080
-2026/06/05 00:04:49 POST /api/v1/recommendations
-2026/06/05 00:04:50 Scanning 3 semesters for identity codes...
-2026/06/05 00:04:51 History scan complete. Total unique markers: 72
-2026/06/05 00:05:13 Completed in 24.0373951s
-2026/06/05 00:07:57 POST /api/v1/recommendations
-2026/06/05 00:07:58 Scanning 3 semesters for identity codes...
-2026/06/05 00:07:58 History scan complete. Total unique markers: 72
-2026/06/05 00:08:19 Completed in 22.0418335s
-2026/06/05 00:10:08 POST /api/v1/recommendations
-2026/06/05 00:10:09 Scanning 3 semesters for identity codes...
-2026/06/05 00:10:10 History scan complete. Total unique markers: 72
-2026/06/05 00:10:31 Completed in 22.1448336s
-2026/06/05 00:13:43 POST /api/v1/recommendations
-2026/06/05 00:13:44 Scanning 2 semesters for identity codes...
-2026/06/05 00:13:44 History scan complete. Total unique markers: 79
-2026/06/05 00:14:03 Completed in 20.467075s
-2026/06/05 00:16:37 POST /api/v1/recommendations
-2026/06/05 00:16:38 Scanning 2 semesters for identity codes...
-2026/06/05 00:16:38 History scan complete. Total unique markers: 79
-2026/06/05 00:16:58 Completed in 20.7186162s
-2026/06/05 00:17:10 POST /api/v1/recommendations
-2026/06/05 00:17:11 Scanning 2 semesters for identity codes...
-2026/06/05 00:17:11 History scan complete. Total unique markers: 79
-2026/06/05 00:17:31 Completed in 20.5019482s
-2026/06/05 00:18:08 POST /api/v1/recommendations
-2026/06/05 00:18:09 Scanning 2 semesters for identity codes...
-2026/06/05 00:18:09 History scan complete. Total unique markers: 79
-2026/06/05 00:18:29 Completed in 20.4610785s
-2026/06/05 00:18:58 POST /api/v1/recommendations
-2026/06/05 00:18:58 Scanning 2 semesters for identity codes...
-2026/06/05 00:18:59 History scan complete. Total unique markers: 79
-2026/06/05 00:19:19 Completed in 21.7739313s
-2026/06/05 00:20:10 POST /api/v1/recommendations
-2026/06/05 00:20:11 Scanning 2 semesters for identity codes...
-2026/06/05 00:20:11 History scan complete. Total unique markers: 79
-2026/06/05 00:20:30 Completed in 19.4128858s
-2026/06/05 00:27:04 POST /api/v1/recommendations
-2026/06/05 00:27:06 Scanning 2 semesters for identity codes...
-2026/06/05 00:27:06 History scan complete. Total unique markers: 79
-2026/06/05 00:27:25 Completed in 21.1034761s
-2026/06/05 00:28:30 POST /api/v1/recommendations
-2026/06/05 00:28:31 Scanning 2 semesters for identity codes...
-2026/06/05 00:28:31 History scan complete. Total unique markers: 79
-2026/06/05 00:28:49 Completed in 19.3429087s
-2026/06/05 00:30:54 POST /api/v1/recommendations
-2026/06/05 00:30:55 Scanning 2 semesters for identity codes...
-2026/06/05 00:30:55 History scan complete. Total unique markers: 79
-2026/06/05 00:31:13 Completed in 19.6953028s
+2026/06/05 00:44:36 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/06/05 00:44:36 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
+2026/06/05 00:44:36 ===========================================
+2026/06/05 00:44:36 A1CE Course Recommender API Server
+2026/06/05 00:44:36 ===========================================
+2026/06/05 00:44:36 Server listening on: http://localhost:8080
+2026/06/05 00:44:43 POST /api/v1/recommendations
+2026/06/05 00:44:44 Scanning 2 semesters for identity codes...
+2026/06/05 00:44:45 History scan complete. Total unique markers: 79
+2026/06/05 00:45:03 Completed in 19.3614215s
+2026/06/05 00:45:25 POST /api/v1/recommendations
+2026/06/05 00:45:27 Scanning 8 semesters for identity codes...
+2026/06/05 00:45:27 History scan complete. Total unique markers: 382
+2026/06/05 00:45:45 Completed in 19.4877646s
+2026/06/05 00:45:59 POST /api/v1/recommendations
+2026/06/05 00:46:00 Scanning 2 semesters for identity codes...
+2026/06/05 00:46:00 History scan complete. Total unique markers: 79
+2026/06/05 00:46:19 Completed in 19.0805095s
