@@ -872,30 +872,14 @@ func fetchPillarGraphics(baseURL string, token string) (map[string]Graphics, err
 }
 
 // fetchCompetencyDates calls the /detail API to grab the start and end dates
-func fetchCompetencyDates(baseURL string, code string, semester string, token string, studentVersion int) (string, string) {
+func fetchCompetencyDates(baseURL string, code string, semester string, token string) (string, string) {
 	if baseURL == "" {
 		log.Println("(!) ERROR: baseURL is empty. Check your .env file!")
 		return "", ""
 	}
 
-	// --- THE VERSION MAPPER ---
-	// Dr. Sally confirmed Version 8 is internally mapped to "V5" in the staging database.
-	// This safely translates the student's integer version into the API string.
-	apiDBVersion := ""
-	if studentVersion == 8 {
-		apiDBVersion = "V5"
-	} else if studentVersion == 7 {
-		apiDBVersion = "V4" // Assuming the offset holds true for past versions
-	} else {
-		// Fallback for any other versions
-		apiDBVersion = fmt.Sprintf("V%d", studentVersion)
-	}
-	// --------------------------
-
 	encodedSemester := url.QueryEscape(semester)
-
-	// Inject the mapped string (apiDBVersion) into the URL!
-	apiURL := fmt.Sprintf("%s/api/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=%s&semester_name=%s", baseURL, code, apiDBVersion, encodedSemester)
+	apiURL := fmt.Sprintf("%s/api/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=7&semester_name=%s", baseURL, code, encodedSemester)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -904,12 +888,12 @@ func fetchCompetencyDates(baseURL string, code string, semester string, token st
 	}
 
 	// --- ADD THE HEADERS ---
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+token) // Ensure 'Bearer ' is included if the API requires it
 	req.Header.Set("Content-Type", "application/json")
 
-	// --- INITIALIZE THE CLIENT ---
+	// --- INITIALIZE THE CLIENT (This fixes the undefined error) ---
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 10 * time.Second, // Good practice to prevent hanging
 	}
 
 	// --- EXECUTE ---

@@ -220,9 +220,26 @@ func OptimizeCourseSets(
 		}
 		liveDataCache := make(map[string]apiData)
 
+		requiredCount := 0
+
 		// 1. SELECTION & FILTERING LOOP
 		for _, courseRec := range iterationCourses {
 			course := courseRec.Course
+
+			if course.CourseCode == "AIC-503" || course.CourseCode == "AIC-602" {
+				hasMath211 := false
+				// Manually check if MAT-211 is in the student's completed competencies
+				for compCode := range studentProfile.Competencies {
+					if compCode == "MAT-211" {
+						hasMath211 = true
+						break
+					}
+				}
+				// If they don't have it, kill the course immediately!
+				if !hasMath211 {
+					continue
+				}
+			}
 
 			if !CheckPrerequisites(course, studentProfile) {
 				continue
@@ -251,6 +268,14 @@ func OptimizeCourseSets(
 				continue
 			}
 
+			// --- THE DR. SALLY QUOTA RULE (THE BOUNCER) ---
+			// If we haven't found at least 4 required courses yet, and this one isn't required...
+			// Skip it! This forces the algorithm to prioritize graduation requirements.
+			if !isReq && requiredCount < 4 {
+				continue
+			}
+			// ----------------------------------------------
+
 			liveDataCache[course.CourseCode] = apiData{
 				startDate:  startDate,
 				endDate:    endDate,
@@ -262,6 +287,13 @@ func OptimizeCourseSets(
 			selectedCourses = append(selectedCourses, courseRec)
 			totalCredits += course.CreditHours
 			subdomainCount[course.SubdomainID]++
+
+			// --- TICK THE QUOTA COUNTER ---
+			// If the course we just added was required, count it!
+			if isReq {
+				requiredCount++
+			}
+			// ------------------------------
 
 			if totalCredits >= targetCredits {
 				break
