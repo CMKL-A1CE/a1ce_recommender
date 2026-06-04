@@ -221,21 +221,20 @@ func OptimizeCourseSets(
 		liveDataCache := make(map[string]apiData)
 
 		requiredCount := 0
+		var waitlistedElectives []int
 
 		// 1. SELECTION & FILTERING LOOP
-		for _, courseRec := range iterationCourses {
+		for i, courseRec := range iterationCourses {
 			course := courseRec.Course
 
 			if course.CourseCode == "AIC-503" || course.CourseCode == "AIC-602" {
 				hasMath211 := false
-				// Manually check if MAT-211 is in the student's completed competencies
 				for compCode := range studentProfile.Competencies {
 					if compCode == "MAT-211" {
 						hasMath211 = true
 						break
 					}
 				}
-				// If they don't have it, kill the course immediately!
 				if !hasMath211 {
 					continue
 				}
@@ -254,23 +253,21 @@ func OptimizeCourseSets(
 				continue
 			}
 
-			// --- ONE SINGLE CLEAN CALL TO THE API ---
 			_, startDate, endDate, isAssessmentOnly, isReq, err := a1ceClient.getCompetencyDetail(course.CourseCode, "Spring 2026", studentProfile.CurriculumVersion)
 
 			if err != nil {
-				fmt.Printf("(!) Error fetching detail via client for %s: %v\n", course.CourseCode, err)
 				continue
 			}
 
 			var apiGraphics Graphics
-
 			if isAssessmentOnly {
 				continue
 			}
 
 			// --- THE DR. SALLY QUOTA RULE (THE BOUNCER) ---
-			// Skip it! This forces the algorithm to prioritize graduation requirements.
 			if !isReq && requiredCount < 4 {
+				// Don't throw it away! Put it on the waitlist!
+				waitlistedElectives = append(waitlistedElectives, i)
 				continue
 			}
 			// ----------------------------------------------
@@ -281,22 +278,57 @@ func OptimizeCourseSets(
 				isRequired: isReq,
 				graphics:   apiGraphics,
 			}
-			// ----------------------------------------
 
 			selectedCourses = append(selectedCourses, courseRec)
 			totalCredits += course.CreditHours
 			subdomainCount[course.SubdomainID]++
 
-			// --- TICK THE QUOTA COUNTER ---
-			// If the course we just added was required, count it!
 			if isReq {
 				requiredCount++
 			}
-			// ------------------------------
 
 			if totalCredits >= targetCredits {
 				break
 			}
+		}
+
+		// --- PHASE 1.1: THE SENIOR WAITLIST RESCUE ---
+		// If the student is a senior (or we just ran out of required courses),
+		// their schedule might still have room. Let's fill it with the waitlist!
+		for _, idx := range waitlistedElectives {
+			if totalCredits >= targetCredits {
+				break
+			}
+
+			courseRec := iterationCourses[idx]
+			course := courseRec.Course
+
+			// --- THE MISSING SECURITY GUARD ---
+			// Make sure this specific waitlisted elective actually fits in the remaining space!
+			if totalCredits+course.CreditHours > targetCredits {
+				continue // Too big! Skip it and look for a smaller course.
+			}
+			// ----------------------------------
+
+			// Fetch the dates AND graphics for the waitlisted course
+			_, startDate, endDate, isAssessmentOnly, isReq, err := a1ceClient.getCompetencyDetail(course.CourseCode, "Spring 2026", studentProfile.CurriculumVersion)
+
+			if err != nil || isAssessmentOnly {
+				continue
+			}
+
+			var apiGraphics Graphics // Ensures the UI icons don't break
+
+			liveDataCache[course.CourseCode] = apiData{
+				startDate:  startDate,
+				endDate:    endDate,
+				isRequired: isReq,
+				graphics:   apiGraphics,
+			}
+
+			selectedCourses = append(selectedCourses, courseRec)
+			totalCredits += course.CreditHours
+			subdomainCount[course.SubdomainID]++
 		}
 
 		// 2. PACKAGING LOOP
