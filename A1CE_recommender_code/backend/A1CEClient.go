@@ -7,7 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
+
+	//"strconv"
 	"strings"
 	"time"
 
@@ -408,10 +409,20 @@ func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName str
 		return nil, "", "", false, false, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
+	// --- ADD THE VERSION MAPPER HERE ---
+	apiDBVersion := ""
+	if curriculumVersion == 8 {
+		apiDBVersion = "5" // Dr. Sally meant ID 5, not the literal letters "V5"!
+	} else if curriculumVersion == 7 {
+		apiDBVersion = "4"
+	} else {
+		apiDBVersion = fmt.Sprintf("%d", curriculumVersion)
+	}
+
 	q := u.Query()
 	q.Set("competency_code", competencyCode)
 	q.Set("semester_name", semesterName)
-	q.Set("curriculum_version", strconv.Itoa(curriculumVersion))
+	q.Set("curriculum_version", apiDBVersion)
 	q.Set("university_code", c.UniversityCode)
 	u.RawQuery = q.Encode()
 
