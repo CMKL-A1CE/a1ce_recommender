@@ -162,7 +162,7 @@ func OptimizeCourseSets(
 		if cleanTitle == "" {
 			// If it was just "none" or "custom", it's blank now. Just number it.
 			roadmapTitle = fmt.Sprintf("PERSONALIZED ROADMAP %d", i+1)
-			currentTheme = "None"
+			currentTheme = "" // FIXED: Leave this blank so it skips the +100 boost loop entirely!
 		} else {
 			// If there's a theme left (like "FAST TRACK"), append it cleanly.
 			roadmapTitle = fmt.Sprintf("PERSONALIZED ROADMAP %d - %s", i+1, cleanTitle)
@@ -172,15 +172,34 @@ func OptimizeCourseSets(
 		iterationCourses := make([]RecommendedCourse, len(baseScoredCourses))
 		copy(iterationCourses, baseScoredCourses)
 
-		if currentTheme != "" {
-			keywords := ThemeKeywords[strings.ToLower(currentTheme)]
-			for idx, courseRec := range iterationCourses {
-				course := courseRec.Course
-				for _, word := range keywords {
-					if strings.Contains(strings.ToLower(course.CourseCode), strings.ToLower(word)) ||
-						strings.Contains(strings.ToLower(course.SubdomainID), strings.ToLower(word)) {
-						iterationCourses[idx].FitScore += 100.0
-						break
+		var keywords []string
+		themeQuery := strings.ToLower(currentTheme)
+
+		if themeQuery != "" {
+			// Loop through all our defined themes in the map (e.g., "game", "code", "business")
+			for mapKey, words := range ThemeKeywords {
+				mapKeyLower := strings.ToLower(mapKey)
+
+				// If the user's string ("business") matches our map key ("business"), grab the words!
+				// This completely ignores plurals and weird string combinations safely.
+				if strings.Contains(themeQuery, mapKeyLower) || strings.Contains(mapKeyLower, themeQuery) {
+					keywords = words
+					break
+				}
+			}
+
+			// If we successfully grabbed keywords, apply the +100 boost!
+			if len(keywords) > 0 {
+				for idx, courseRec := range iterationCourses {
+					course := courseRec.Course
+					courseTitleLower := strings.ToLower(course.CourseName) // Make sure this is the right field!
+
+					for _, word := range keywords {
+						wordLower := strings.ToLower(word)
+						if strings.Contains(courseTitleLower, wordLower) {
+							iterationCourses[idx].FitScore += 100.0
+							break
+						}
 					}
 				}
 			}
@@ -220,6 +239,15 @@ func OptimizeCourseSets(
 		}
 		liveDataCache := make(map[string]apiData)
 
+		sort.Slice(iterationCourses, func(i, j int) bool {
+			if iterationCourses[i].FitScore != iterationCourses[j].FitScore {
+				return iterationCourses[i].FitScore > iterationCourses[j].FitScore
+			}
+			// TIE-BREAKER: Alphabetical order
+			return iterationCourses[i].Course.CourseCode < iterationCourses[j].Course.CourseCode
+		})
+
+		// --- NEW: Track required courses AND keep a waitlist ---
 		requiredCount := 0
 		var waitlistedElectives []int
 
