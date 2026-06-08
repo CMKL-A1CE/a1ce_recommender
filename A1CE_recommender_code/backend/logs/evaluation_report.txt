@@ -1,46 +1,10 @@
-2026/06/05 22:28:39 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
-2026/06/05 22:28:39 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
-2026/06/05 22:28:39 ===========================================
-2026/06/05 22:28:39 A1CE Course Recommender API Server
-2026/06/05 22:28:39 ===========================================
-2026/06/05 22:28:39 Server listening on: http://localhost:8080
-2026/06/05 22:28:46 POST /api/v1/recommendations
-2026/06/05 22:28:47 Scanning 8 semesters for identity codes...
-2026/06/05 22:28:48 History scan complete. Total unique markers: 382
-2026/06/05 22:29:04 Completed in 18.5512886s
-2026/06/05 22:30:09 POST /api/v1/recommendations
-2026/06/05 22:30:11 Scanning 8 semesters for identity codes...
-2026/06/05 22:30:11 History scan complete. Total unique markers: 382
-2026/06/05 22:30:33 Completed in 24.0748057s
-2026/06/05 22:31:06 POST /api/v1/recommendations
-2026/06/05 22:31:10 Scanning 8 semesters for identity codes...
-2026/06/05 22:31:10 History scan complete. Total unique markers: 382
-2026/06/05 22:31:30 Completed in 24.8030198s
-2026/06/05 22:32:17 POST /api/v1/recommendations
-2026/06/05 22:32:18 Scanning 8 semesters for identity codes...
-2026/06/05 22:32:19 History scan complete. Total unique markers: 382
-2026/06/05 22:32:38 Completed in 20.5647084s
-2026/06/05 22:36:08 POST /api/v1/recommendations
-2026/06/05 22:36:10 Scanning 8 semesters for identity codes...
-2026/06/05 22:36:10 History scan complete. Total unique markers: 382
-2026/06/05 22:36:28 Completed in 19.9071991s
-2026/06/05 22:37:38 POST /api/v1/recommendations
-2026/06/05 22:37:39 Scanning 2 semesters for identity codes...
-2026/06/05 22:37:39 History scan complete. Total unique markers: 79
-2026/06/05 22:37:54 Completed in 16.3603551s
-2026/06/05 22:39:52 POST /api/v1/recommendations
-2026/06/05 22:39:53 Scanning 2 semesters for identity codes...
-2026/06/05 22:39:53 History scan complete. Total unique markers: 79
-2026/06/05 22:40:12 Completed in 19.8496214s
-2026/06/05 22:40:31 POST /api/v1/recommendations
-2026/06/05 22:40:31 Scanning 2 semesters for identity codes...
-2026/06/05 22:40:31 History scan complete. Total unique markers: 79
-2026/06/05 22:40:49 Completed in 17.8807565s
-2026/06/05 22:42:19 POST /api/v1/recommendations
-2026/06/05 22:42:20 Scanning 2 semesters for identity codes...
-2026/06/05 22:42:20 History scan complete. Total unique markers: 79
-2026/06/05 22:42:37 Completed in 17.3718783s
-2026/06/05 22:43:41 POST /api/v1/recommendations
-2026/06/05 22:43:41 Scanning 2 semesters for identity codes...
-2026/06/05 22:43:42 History scan complete. Total unique markers: 79
-2026/06/05 22:43:58 Completed in 17.2575578s
+2026/06/09 01:23:35 (✓) SUCCESS: Loaded 40 REQUIRED rules from curriculum_rules.json
+2026/06/09 01:23:35 (✓) SUCCESS: Loaded 116 IDENTITY mappings.
+2026/06/09 01:23:35 ===========================================
+2026/06/09 01:23:35 A1CE Course Recommender API Server
+2026/06/09 01:23:35 ===========================================
+2026/06/09 01:23:35 Server listening on: http://localhost:8080
+2026/06/09 01:23:40 POST /api/v1/recommendations
+2026/06/09 01:23:41 Scanning 8 semesters for identity codes...
+2026/06/09 01:23:41 History scan complete. Total unique markers: 382
+2026/06/09 01:24:07 Completed in 26.8561264s

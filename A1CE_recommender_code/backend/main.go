@@ -970,20 +970,24 @@ func fetchPrerequisites(baseURL string, code string, semester string, token stri
 	}
 
 	encodedSemester := url.QueryEscape(semester)
-	// INJECT THE DYNAMIC CURRICULUM VERSION HERE
-	apiURL := fmt.Sprintf("%s/api/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=%d&semester_name=%s", baseURL, code, currVer, encodedSemester)
+	apiURL := fmt.Sprintf("%s/competency/detail?competency_code=%s&university_code=CMKL&curriculum_version=%d&semester_name=%s", baseURL, code, currVer, encodedSemester)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
+	// --- THE SECURITY HEADER FIX ---
+	req.Header.Set("Cookie", "jwt="+strings.TrimSpace(token))
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/122.0 Safari/537.36")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Connection", "keep-alive")
+	// -------------------------------
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != 200 {
+		fmt.Printf("(!) WARNING: Prerequisite fetch failed for %s. Status: %d\n", code, resp.StatusCode)
 		return nil
 	}
 	defer resp.Body.Close()
