@@ -184,10 +184,83 @@ type CourseSet struct {
 }
 
 var ThemeKeywords = map[string][]string{
-	"code":     {"Programming", "Software", "Data", "Algorithm", "Computer", "Network"},
-	"science":  {"Physics", "Math", "Biology", "Chemistry", "Calculus", "Science"},
-	"games":    {"Game", "Interactive", "Graphics", "Strategy", "Survival", "Engine"},
-	"business": {"Business", "Management", "Economics", "Marketing", "Entrepreneurship"},
+	// Keywords derived from the actual Spring 2026 catalog course titles.
+	// Each keyword must appear in at least one real course title AND must not
+	// produce false-positive matches in other theme pillars.
+	"code": {
+		// SEN courses
+		"Programming",           // SEN-102, SEN-103, SEN-109
+		"Algorithm",             // SEN-101 "Algorithmic Thinking", SEN-107, SEN-208
+		"Database",              // SEN-209 "Designing and Implementing Databases"
+		// AIC courses
+		"Neural Networks",       // AIC-304
+		"Deep Learning",         // AIC-304
+		"Machine Learning",      // AIC-507 "Graph-Based Machine Learning"
+		"Transformer",           // AIC-503 "Transformer Networks"
+		"Generative AI",         // AIC-505
+		"Large Language Models", // AIC-506
+		"Natural Language Processing", // AIC-602
+		"Computer Vision",       // AIC-604
+		"Autonomous Agents",     // AIC-603
+		// SYS courses
+		"Operating Systems",     // SYS-101
+		"Cloud Computing",       // SYS-302
+		"Parallel Computing",    // SYS-401
+		"Big Data",              // SYS-403
+	},
+	"science": {
+		// MAT courses
+		"Calculus",              // MAT-100, MAT-103, MAT-105
+		"Optimization",          // MAT-104 "Introduction to Optimization"
+		"Geometry",              // MAT-106 "Analytical Geometry"
+		"Probability",           // MAT-204, MAT-205
+		"Statistics",            // MAT-203, MAT-206
+		"Signal Processing",     // MAT-202
+		"Discrete Math",         // MAT-211, MAT-212, MAT-213, MAT-214
+		// SCI courses (from course_identities.json)
+		"Biology",               // SCI-101
+		"Chemistry",             // SCI-102
+		"Quantum",               // SCI-104 Quantum Physics
+		"Physics",               // SCI-104, SCI-105, SCI-106, SCI-107
+		"Kinematics",            // SCI-105
+		"Dynamics",              // SCI-106
+		"Thermodynamics",        // SCI-108
+		"Electricity",           // SCI-109
+		"Magnetism",             // SCI-110
+		"Optics",                // SCI-111
+		"Mechanics",             // classical mechanics courses
+	},
+	"games": {
+		// HCD courses — all game/media specific
+		"Game",                  // HCD-490 "Game Prototype Studio", HCD-541 "Game Engines I"
+		"Narrative",             // HCD-533 "Narrative Design"
+		"Sound Design",          // HCD-534 (compound phrase, won't match generic "Design")
+	},
+	"business": {
+		// ENI courses
+		"Business",              // ENI-202, ENI-204, ENI-304
+		"Product Design",        // ENI-103 "Product Design and Development" (compound phrase)
+		"Retail",                // ENI-401 "Retail and Services Applications"
+		// HAS courses
+		"Economics",             // HAS-107 "Principles of Economics"
+		// General business terms for future courses
+		"Entrepreneurship",
+		"Startup",               // SEC-202 "Secure Startup" (acceptable overlap)
+	},
+}
+
+// ThemePrefixes maps theme names to the CMKL course code prefixes that belong to that theme.
+// This enables prefix-based boosting when course titles don't literally match keywords.
+// Notes:
+//   - SEN (Software Engineering) added to code — all SEN courses are programming/algorithms/databases.
+//   - SCI kept for science — physics/chemistry/biology courses (SCI-101 through SCI-111).
+//   - SYS removed from games — systems/infrastructure is a code pillar, not game development.
+//   - COM (Communication: writing, Thai language) excluded from code intentionally.
+var ThemePrefixes = map[string][]string{
+	"code":     {"AIC", "SEN", "SYS"},
+	"science":  {"MAT", "SCI"},
+	"games":    {"AIC", "HCD"},
+	"business": {"HAS", "ENI"},
 }
 
 type RecommendationResponse struct {

@@ -166,37 +166,31 @@ func fetchAllCompletedIdentityCodes(client *A1CEClient, studentID string, profil
 		}
 	}
 
-	log.Printf("Scanning %d semesters for identity codes...", len(uniqueSemesters))
+	log.Printf("Scanning %d semesters sequentially for identity codes...", len(uniqueSemesters))
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-
+	// --- THE 503 DDOS FIX: SEQUENTIAL LOOP ---
+	// Removed the WaitGroup, Mutex, and concurrent go routines.
 	for sem := range uniqueSemesters {
-		wg.Add(1)
-		go func(s string) {
-			defer wg.Done()
-			cards, err := client.GetSemesterCompetencies(studentID, s)
-			if err == nil {
-				mu.Lock()
-				defer mu.Unlock()
-				for _, card := range cards {
-					completed[normalizeCode(card.CourseCode)] = true
-					completed[normalizeCode(card.CompetencyID)] = true
-					if card.TemplateID != "" {
-						completed[normalizeCode(card.TemplateID)] = true
-					}
-					if card.CourseName != "" {
-						completed["NAME:"+smartCleanName(card.CourseName)] = true
-					}
-					// Map check
-					if mappedID, ok := idMap[normalizeCode(card.CourseCode)]; ok {
-						completed[normalizeCode(mappedID)] = true
-					}
+		cards, err := client.GetSemesterCompetencies(studentID, sem)
+		if err == nil {
+			for _, card := range cards {
+				completed[normalizeCode(card.CourseCode)] = true
+				completed[normalizeCode(card.CompetencyID)] = true
+				if card.TemplateID != "" {
+					completed[normalizeCode(card.TemplateID)] = true
+				}
+				if card.CourseName != "" {
+					completed["NAME:"+smartCleanName(card.CourseName)] = true
+				}
+				// Map check
+				if mappedID, ok := idMap[normalizeCode(card.CourseCode)]; ok {
+					completed[normalizeCode(mappedID)] = true
 				}
 			}
-		}(sem)
+		}
+		// Add a polite 100ms pause to let the M2M staging server breathe!
+		time.Sleep(100 * time.Millisecond)
 	}
-	wg.Wait()
 
 	log.Printf("History scan complete. Total unique markers: %d", len(completed))
 	return completed
@@ -433,9 +427,111 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// --- PARALLEL PREREQUISITE PRE-FETCH ---
+	// Fetch prerequisites for every non-completed catalog course concurrently (max 10 at a time).
+	// Without this, a student with many remaining courses causes 40-60 sequential HTTP calls
+	// which exceeds the server write timeout and produces a socket hang-up in the client.
+	prereqBaseURL := os.Getenv("M2M_BASE_URL")
+	prereqLookupVersion := profile.CurriculumVersion
+	if prereqLookupVersion <= 0 {
+		prereqLookupVersion = 7
+	}
+
+	prereqCache := make(map[string][]CompetencyPrerequisiteInfo)
+	{
+		type fetchResult struct {
+			code    string
+			prereqs []CompetencyPrerequisiteInfo
+		}
+		sem := make(chan struct{}, 10) // cap at 10 concurrent API calls
+		var wg sync.WaitGroup
+		results := make(chan fetchResult, len(catalog.Courses))
+
+		for _, c := range catalog.Courses {
+			isCompleted := (c.TemplateID != "" && completedMap[normalizeCode(c.TemplateID)]) ||
+				completedMap[normalizeCode(c.CourseCode)] ||
+				completedMap[normalizeCode(c.CourseID)]
+			if isCompleted {
+				continue
+			}
+			wg.Add(1)
+			go func(code string) {
+				defer wg.Done()
+				sem <- struct{}{}
+				prereqs := fetchPrerequisites(prereqBaseURL, code, req.Semester, a1ceClient.JWTToken, prereqLookupVersion)
+				<-sem
+				results <- fetchResult{code: code, prereqs: prereqs}
+			}(c.CourseCode)
+		}
+
+		// Close results channel once all goroutines finish
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+		for r := range results {
+			prereqCache[r.code] = r.prereqs
+		}
+	}
+
+	// --- PREREQUISITE DEBUG LOG ---
+	withPrereqs := 0
+	for code, prereqs := range prereqCache {
+		if len(prereqs) > 0 {
+			withPrereqs++
+			fmt.Printf("[PREREQ] %s requires: ", code)
+			for _, p := range prereqs {
+				fmt.Printf("%s ", p.PrerequisiteCompetencyCode)
+			}
+			fmt.Println()
+		}
+	}
+	fmt.Printf("[PREREQ] Fetched %d non-completed courses. %d have prerequisites, %d have none.\n",
+		len(prereqCache), withPrereqs, len(prereqCache)-withPrereqs)
+	// ------------------------------
+	// -----------------------------------------
+
+	// --- THEME PREREQUISITE PATHFINDING ---
+	// Uses the pre-fetched cache — zero extra API calls here.
+	pathfindingBoosts := make(map[string]bool)
+	var themeKeywords []string
+
+	if req.PreferredTheme != "" {
+		cleanTheme := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(req.PreferredTheme)), "s")
+		for mapKey, words := range ThemeKeywords {
+			if strings.Contains(cleanTheme, strings.ToLower(mapKey)) || strings.Contains(strings.ToLower(mapKey), cleanTheme) {
+				themeKeywords = words
+				break
+			}
+		}
+
+		for _, catalogCourse := range catalog.Courses {
+			if completedMap[normalizeCode(catalogCourse.CourseCode)] || completedMap[normalizeCode(catalogCourse.CourseID)] {
+				continue
+			}
+			courseTitleLower := strings.ToLower(catalogCourse.CourseName)
+			isThemeMatch := false
+			for _, word := range themeKeywords {
+				if strings.Contains(courseTitleLower, strings.ToLower(word)) {
+					isThemeMatch = true
+					break
+				}
+			}
+			if isThemeMatch {
+				for _, p := range prereqCache[catalogCourse.CourseCode] {
+					cleanPrereq := normalizeCode(p.PrerequisiteCompetencyCode)
+					if !completedMap[cleanPrereq] {
+						pathfindingBoosts[cleanPrereq] = true
+					}
+				}
+			}
+		}
+	}
+	// ----------------------------------------
+
 	// --- DR. SALLY'S MASTER PRE-FILTER ---
-	// We filter the catalog strictly ONCE before processing any scores.
 	var validCandidatePool []Course
+	filteredCompleted, filteredPrereq, filteredSequence, filteredOther := 0, 0, 0, 0
 
 	for _, course := range catalog.Courses {
 		// 1. Is it already completed? Skip it.
@@ -456,47 +552,41 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			isCompleted = true
 		}
 		if isCompleted {
-			continue // Student already took it! Dump it.
+			filteredCompleted++
+			continue
 		}
 
-		// 2. DOES IT PASS EXPLICIT PREREQUISITES?
-		baseURL := os.Getenv("M2M_BASE_URL")
-
-		// --- CURRICULUM VERSION FALLBACK PATCH ---
-		lookupVersion := profile.CurriculumVersion
-		if lookupVersion <= 0 {
-			lookupVersion = 7 // Default to active production rules if profile is unassigned
-		}
-		course.Prerequisites = fetchPrerequisites(baseURL, course.CourseCode, req.Semester, a1ceClient.JWTToken, lookupVersion)
+		course.Prerequisites = prereqCache[course.CourseCode]
 
 		if !CheckPrerequisites(course, profile) {
-			continue // Missing prerequisite! Dump it permanently.
+			fmt.Printf("[PREREQ-BLOCKED] %s (%s) — missing: ", course.CourseCode, course.CourseName)
+			for _, p := range course.Prerequisites {
+				fmt.Printf("%s ", p.PrerequisiteCompetencyCode)
+			}
+			fmt.Println()
+			filteredPrereq++
+			continue
 		}
 
-		// 3. Skip SOF courses
 		if strings.HasPrefix(course.CourseCode, "SOF-") {
 			continue
 		}
 
-		// 4. Semester Availability
 		if course.SemesterOffered != "" && !strings.EqualFold(course.SemesterOffered, req.Semester) {
 			continue
 		}
 
-		// --- STRICT SEQUENTIAL PREREQUISITE ENFORCER (Sub-Group Aware) ---
 		prefix, num := parseCourseCode(course.CourseCode)
 		isBlockedBySequence := false
 
 		if prefix != "" && num > 0 {
 			courseFamily := num / 10
 			courseStep := num % 10
-
 			for _, lowerCourse := range catalog.Courses {
 				lowerPrefix, lowerNum := parseCourseCode(lowerCourse.CourseCode)
 				if lowerPrefix == prefix && lowerNum > 0 {
 					lowerFamily := lowerNum / 10
 					lowerStep := lowerNum % 10
-
 					if lowerFamily == courseFamily && lowerStep < courseStep {
 						lowerCompleted := false
 						if lowerCourse.TemplateID != "" && completedMap[normalizeCode(lowerCourse.TemplateID)] {
@@ -518,19 +608,16 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if isBlockedBySequence {
-			continue // Throw the higher-level course out of the pool completely
+			fmt.Printf("[SEQ-BLOCKED] %s (%s) — earlier course in sequence not completed\n", course.CourseCode, course.CourseName)
+			filteredSequence++
+			continue
 		}
 
 		if prefix == "URD" {
 			isEligibleURD := true
-			// Scan the catalog for any lower URD courses
 			for _, otherCourse := range catalog.Courses {
 				otherPrefix, otherNum := parseCourseCode(otherCourse.CourseCode)
-
-				// If we find a lower URD course (e.g., URD-101 is lower than URD-322)
 				if otherPrefix == "URD" && otherNum < num {
-
-					// Did the student complete this lower course?
 					lowerCompleted := false
 					if otherCourse.TemplateID != "" && completedMap[normalizeCode(otherCourse.TemplateID)] {
 						lowerCompleted = true
@@ -538,8 +625,6 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 					if completedMap[normalizeCode(otherCourse.CourseCode)] || completedMap[normalizeCode(otherCourse.CourseID)] {
 						lowerCompleted = true
 					}
-
-					// If a lower URD course is missing, they cannot take this higher one!
 					if !lowerCompleted {
 						isEligibleURD = false
 						break
@@ -547,13 +632,15 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if !isEligibleURD {
-				continue // Dump the higher URD course permanently
+				filteredOther++
+				continue
 			}
 		}
-
-		// If the course survived all checks, add it to the clean candidate pool!
 		validCandidatePool = append(validCandidatePool, course)
 	}
+
+	fmt.Printf("[FILTER] Results — passed: %d | completed: %d | prereq-blocked: %d | sequence-blocked: %d | other: %d | catalog total: %d\n",
+		len(validCandidatePool), filteredCompleted, filteredPrereq, filteredSequence, filteredOther, len(catalog.Courses))
 
 	// --- NOW PROCESS SCORES FOR THE VALID CANDIDATES ---
 	var scoredCourses []RecommendedCourse
@@ -562,17 +649,65 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		interestScore := CalculateInterestScore(course, profile)
 		progScore := CalculateProgramProgressScore(course, profile, requirements)
 
-		// 2. APPLY DYNAMIC WEIGHTS TO THE MATH
 		fitScore := (compW * compScore) + (intW * interestScore) + (progW * progScore)
 
-		// Determine the dominant factor for the Reason string
+		// --- BEHAVIORAL WEIGHT OVERRIDES ---
+
+		// 1. FAST TRACK: Prioritize high-credit courses to accelerate graduation
+		if req.WeightType == "fast_track" {
+			// A 6-credit course gets +1.8, a 3-credit course gets +0.9 — big enough to reorder rankings
+			fitScore += (course.CreditHours * 0.3)
+		}
+
+		// 2. PLAY IT SAFE: Boost courses in pillars the student has already succeeded in.
+		// +5 so the signal is visible alongside the theme prefix boost (+50): within the
+		// chosen theme's courses, familiar ones rank higher; outside the theme, unfamiliar
+		// pillars can't catch up to theme courses even with the +5.
+		if req.WeightType == "play_it_safe" && len(successfulCourses) > 0 {
+			candidatePrefix, _ := parseCourseCode(course.CourseCode)
+			for _, success := range successfulCourses {
+				successPrefix, _ := parseCourseCode(success)
+				if candidatePrefix == successPrefix && candidatePrefix != "" {
+					fitScore += 5.0
+					break
+				}
+			}
+		}
+
+		// 3. THEME PILLAR BOOST: Boost courses whose code prefix belongs to the chosen theme.
+		// Base boost is +50. explore_passions doubles it to +100 so the student's chosen
+		// theme dominates even when their course history points elsewhere.
+		if req.PreferredTheme != "" {
+			cleanTheme := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(req.PreferredTheme)), "s")
+			coursePrefix, _ := parseCourseCode(course.CourseCode)
+			themeBoost := 50.0
+			if req.WeightType == "explore_passions" {
+				themeBoost = 100.0
+			}
+			for themeKey, prefixes := range ThemePrefixes {
+				if strings.Contains(cleanTheme, strings.ToLower(themeKey)) || strings.Contains(strings.ToLower(themeKey), cleanTheme) {
+					for _, p := range prefixes {
+						if coursePrefix == p {
+							fitScore += themeBoost
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+
+		// 4. THEME PATHFINDING BOOST: Surface prerequisite courses that unlock blocked theme courses
+		if pathfindingBoosts[normalizeCode(course.CourseCode)] {
+			fitScore += 100.0 // Highest priority — unlocks a theme course the student can't yet take
+		}
+		// -----------------------------------
+
 		reason := ""
 		weightedComp := compW * compScore
 		weightedInt := intW * interestScore
 		weightedProg := progW * progScore
 
-		// --- DYNAMIC ADJECTIVES FIX ---
-		// Assign accurate descriptive words based on the raw score thresholds
 		getAdjective := func(score float64) string {
 			if score >= 0.25 {
 				return "Exceptional"

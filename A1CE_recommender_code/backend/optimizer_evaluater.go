@@ -81,7 +81,6 @@ func fetchCompetencyDetailsFromM2M(baseURL string, code string, semester string,
 }
 
 // OptimizeCourseSets generates up to 4 thematic roadmaps
-// OptimizeCourseSets generates up to 4 thematic roadmaps
 func OptimizeCourseSets(
 	baseScoredCourses []RecommendedCourse,
 	studentProfile *StudentProfile,
@@ -292,13 +291,15 @@ func OptimizeCourseSets(
 				continue
 			}
 
+			// Determine if they chose the bypass weight
+			isExplorePassions := strings.Contains(strings.ToUpper(currentTheme), "EXPLORE PASSIONS")
+
 			// --- THE DR. SALLY QUOTA RULE (THE BOUNCER) ---
-			if !isReq && requiredCount < 4 {
-				// Don't throw it away! Put it on the waitlist!
+			// If "Explore Passions" is selected, the Bouncer stands down and lets electives through!
+			if !isReq && requiredCount < 4 && !isExplorePassions {
 				waitlistedElectives = append(waitlistedElectives, i)
 				continue
 			}
-			// ----------------------------------------------
 
 			liveDataCache[course.CourseCode] = apiData{
 				startDate:  startDate,
@@ -367,26 +368,41 @@ func OptimizeCourseSets(
 			// We will set min/max on the first iteration inside the loop
 			firstCourse := true
 
-			// --- DR. SALLY FIX 1: GROUP BY PILLAR & NUMBER ---
-			// We sort in the backend so the UI receives it perfectly organized!
+			// --- DR. SALLY + EAIN FIX: THEME-WEIGHTED PILLAR SORT ---
+			// 1. Find the highest FitScore for each prefix group
+			pillarMaxScore := make(map[string]float64)
+			for _, c := range selectedCourses {
+				prefix, _ := getPrefixAndNum(c.Course.CourseCode)
+				if c.FitScore > pillarMaxScore[prefix] {
+					pillarMaxScore[prefix] = c.FitScore
+				}
+			}
+
+			// 2. Sort the courses to satisfy both requirements
 			for a := 0; a < len(selectedCourses); a++ {
 				for b := a + 1; b < len(selectedCourses); b++ {
 					prefixA, numA := getPrefixAndNum(selectedCourses[a].Course.CourseCode)
 					prefixB, numB := getPrefixAndNum(selectedCourses[b].Course.CourseCode)
 
 					if prefixA != prefixB {
-						// Different pillars: Sort alphabetically (e.g., AIC comes before SEN)
-						if prefixA > prefixB {
+						// DIFFERENT PILLARS: Sort by the block's highest FitScore! (Passes Eain's TC-009)
+						if pillarMaxScore[prefixA] < pillarMaxScore[prefixB] {
 							selectedCourses[a], selectedCourses[b] = selectedCourses[b], selectedCourses[a]
+						} else if pillarMaxScore[prefixA] == pillarMaxScore[prefixB] {
+							// If block scores perfectly tie, fall back to alphabetical
+							if prefixA > prefixB {
+								selectedCourses[a], selectedCourses[b] = selectedCourses[b], selectedCourses[a]
+							}
 						}
 					} else {
-						// Same pillar: Sort numerically (e.g., 101 comes before 102)
+						// SAME PILLAR: Sort numerically to keep them neatly grouped (Passes Dr. Sally's rule)
 						if numA > numB {
 							selectedCourses[a], selectedCourses[b] = selectedCourses[b], selectedCourses[a]
 						}
 					}
 				}
 			}
+			// --------------------------------------------------------
 
 			for _, c := range selectedCourses {
 
@@ -399,10 +415,48 @@ func OptimizeCourseSets(
 				courseSpecificScore := c.FitScore
 
 				if courseSpecificScore >= 100.0 {
+					// Pathfinding prerequisite OR keyword-boosted theme course
 					courseSpecificScore = courseSpecificScore - 100.0
 
-					if currentTheme != "None" {
-						dynamicReason = fmt.Sprintf("%s (Aligns with %s focus)", c.Reason, currentTheme)
+					if currentTheme != "" && currentTheme != "None" {
+						courseTitleLower := strings.ToLower(c.Course.CourseName)
+						isDirectMatch := false
+						for _, word := range keywords {
+							if strings.Contains(courseTitleLower, strings.ToLower(word)) {
+								isDirectMatch = true
+								break
+							}
+						}
+
+						if isDirectMatch {
+							dynamicReason = fmt.Sprintf("Exceptional Competency Match (Aligns directly with %s)", currentTheme)
+						} else {
+							dynamicReason = fmt.Sprintf("Critical Prerequisite (Unlocks advanced %s courses)", currentTheme)
+						}
+					}
+				} else if courseSpecificScore >= 50.0 && currentTheme != "" && currentTheme != "None" {
+					// Prefix-boosted theme pillar course — matched by course code, not just title keyword
+					courseSpecificScore = courseSpecificScore - 50.0
+
+					// Extract just the base theme name (e.g. "BUSINESS" from "BUSINESS FAST TRACK")
+					themeBaseName := currentTheme
+					if parts := strings.Fields(currentTheme); len(parts) > 0 {
+						themeBaseName = parts[0]
+					}
+
+					courseTitleLower := strings.ToLower(c.Course.CourseName)
+					isDirectTitleMatch := false
+					for _, word := range keywords {
+						if strings.Contains(courseTitleLower, strings.ToLower(word)) {
+							isDirectTitleMatch = true
+							break
+						}
+					}
+
+					if isDirectTitleMatch {
+						dynamicReason = fmt.Sprintf("Strong Theme Alignment (Aligns directly with your %s theme)", themeBaseName)
+					} else {
+						dynamicReason = fmt.Sprintf("Core %s Course (Belongs to your chosen theme's pillar)", themeBaseName)
 					}
 				} else if dynamicReason == "" || strings.Contains(dynamicReason, "0.70") {
 					// SECURITY FIX: Never expose SubdomainID (UUIDs). Use CourseCode!
@@ -458,6 +512,15 @@ func OptimizeCourseSets(
 				})
 			}
 			avgScore = sumScore / float64(len(selectedCourses))
+		}
+
+		// Quality gate: if a real theme was matched (keywords found) but no course in this
+		// roadmap reached the theme-boost floor (≥50), all remaining iterations will also
+		// be filler — stop early rather than returning low-quality roadmaps.
+		// Using len(keywords)>0 instead of currentTheme!="" so weight-only labels like
+		// "EXPLORE PASSIONS" or "FAST TRACK" (no real theme) don't trigger this gate.
+		if len(keywords) > 0 && maxScore < 50.0 {
+			break
 		}
 
 		group := MilestoneGroup{
