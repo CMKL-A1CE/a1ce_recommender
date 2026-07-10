@@ -15,6 +15,10 @@ type RecommendationRequest struct {
 	PreferredTheme   string                 `json:"preferred_theme"`
 	WeightType       string                 `json:"weight_type,omitempty"`
 	MinFitScore      float64                `json:"min_fit_score,omitempty"` //New for weight cut off logic
+	// Custom weight values — only used when weight_type = "custom"
+	CompetencyWeight float64                `json:"competency_weight,omitempty"`
+	InterestWeight   float64                `json:"interest_weight,omitempty"`
+	ProgressWeight   float64                `json:"progress_weight,omitempty"`
 }
 
 type RecommendationFilters struct {
@@ -181,6 +185,16 @@ type CourseSet struct {
 	MaxScore           float64             `json:"max_score"`
 	TotalCredits       int                 `json:"total_credits"`
 	A1CEMilestoneGroup MilestoneGroup      `json:"-"`
+}
+
+// CourseSchedule holds one time-slot block for a course.
+// Day: "Monday"/"Wednesday"/etc., times: "09:00"/"11:00", weeks: 1-based week numbers.
+type CourseSchedule struct {
+	Day       string `json:"day"`
+	StartTime string `json:"start_time"`
+	EndTime   string `json:"end_time"`
+	StartWeek int    `json:"start_week"`
+	EndWeek   int    `json:"end_week"`
 }
 
 var ThemeKeywords = map[string][]string{

@@ -235,6 +235,7 @@ func OptimizeCourseSets(
 			endDate    string
 			isRequired bool
 			graphics   Graphics
+			schedule   []CourseSchedule
 		}
 		liveDataCache := make(map[string]apiData)
 
@@ -280,7 +281,7 @@ func OptimizeCourseSets(
 				continue
 			}
 
-			_, startDate, endDate, isAssessmentOnly, isReq, err := a1ceClient.getCompetencyDetail(course.CourseCode, "Spring 2026", studentProfile.CurriculumVersion)
+			_, startDate, endDate, isAssessmentOnly, isReq, schedule, err := a1ceClient.getCompetencyDetail(course.CourseCode, "Spring 2026", studentProfile.CurriculumVersion)
 
 			if err != nil {
 				continue
@@ -301,11 +302,25 @@ func OptimizeCourseSets(
 				continue
 			}
 
+			// --- SCHEDULE CONFLICT CHECK ---
+			// Skip this course if its time slots overlap with any already-selected course.
+			conflicting := false
+			for _, sel := range selectedCourses {
+				if schedulesConflict(schedule, liveDataCache[sel.Course.CourseCode].schedule) {
+					conflicting = true
+					break
+				}
+			}
+			if conflicting {
+				continue
+			}
+
 			liveDataCache[course.CourseCode] = apiData{
 				startDate:  startDate,
 				endDate:    endDate,
 				isRequired: isReq,
 				graphics:   apiGraphics,
+				schedule:   schedule,
 			}
 
 			selectedCourses = append(selectedCourses, courseRec)
@@ -340,7 +355,7 @@ func OptimizeCourseSets(
 			// ----------------------------------
 
 			// Fetch the dates AND graphics for the waitlisted course
-			_, startDate, endDate, isAssessmentOnly, isReq, err := a1ceClient.getCompetencyDetail(course.CourseCode, "Spring 2026", studentProfile.CurriculumVersion)
+			_, startDate, endDate, isAssessmentOnly, isReq, schedule, err := a1ceClient.getCompetencyDetail(course.CourseCode, "Spring 2026", studentProfile.CurriculumVersion)
 
 			if err != nil || isAssessmentOnly {
 				continue
@@ -348,11 +363,24 @@ func OptimizeCourseSets(
 
 			var apiGraphics Graphics // Ensures the UI icons don't break
 
+			// Schedule conflict check for waitlisted electives too.
+			conflicting := false
+			for _, sel := range selectedCourses {
+				if schedulesConflict(schedule, liveDataCache[sel.Course.CourseCode].schedule) {
+					conflicting = true
+					break
+				}
+			}
+			if conflicting {
+				continue
+			}
+
 			liveDataCache[course.CourseCode] = apiData{
 				startDate:  startDate,
 				endDate:    endDate,
 				isRequired: isReq,
 				graphics:   apiGraphics,
+				schedule:   schedule,
 			}
 
 			selectedCourses = append(selectedCourses, courseRec)
@@ -698,6 +726,46 @@ func CalculateProgramProgressFit(
 	}
 
 	return 0.6*competencyProgress + 0.4*distributionProgress
+}
+
+// parseTimeToMinutes converts "HH:MM" to minutes since midnight for easy comparison.
+func parseTimeToMinutes(t string) int {
+	parts := strings.SplitN(t, ":", 2)
+	if len(parts) != 2 {
+		return 0
+	}
+	h := 0
+	m := 0
+	fmt.Sscanf(parts[0], "%d", &h)
+	fmt.Sscanf(parts[1], "%d", &m)
+	return h*60 + m
+}
+
+// schedulesConflict returns true if any slot in 'a' overlaps with any slot in 'b'.
+// Two slots conflict when they share the same day AND their week ranges overlap
+// AND their time ranges overlap. If either course has no schedule data yet
+// (API didn't return it), we assume no conflict so we don't over-block.
+func schedulesConflict(a, b []CourseSchedule) bool {
+	for _, sa := range a {
+		for _, sb := range b {
+			if sa.Day != sb.Day {
+				continue
+			}
+			// Week range overlap: [sa.StartWeek, sa.EndWeek] ∩ [sb.StartWeek, sb.EndWeek]
+			if sa.StartWeek > sb.EndWeek || sb.StartWeek > sa.EndWeek {
+				continue
+			}
+			// Time range overlap: [saStart, saEnd) ∩ [sbStart, sbEnd)
+			aStart := parseTimeToMinutes(sa.StartTime)
+			aEnd := parseTimeToMinutes(sa.EndTime)
+			bStart := parseTimeToMinutes(sb.StartTime)
+			bEnd := parseTimeToMinutes(sb.EndTime)
+			if aStart < bEnd && bStart < aEnd {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // --- Helper Functions (Only those specific to optimizer) ---

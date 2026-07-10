@@ -333,6 +333,8 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 		compW, intW, progW = 0.8, 0.1, 0.1
 	} else if req.WeightType == "balanced" {
 		compW, intW, progW = 0.33, 0.33, 0.34
+	} else if req.WeightType == "custom" {
+		compW, intW, progW = req.CompetencyWeight, req.InterestWeight, req.ProgressWeight
 	}
 
 	profile, err := a1ceClient.GetStudentProfile(req.StudentID)

@@ -402,10 +402,10 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 }
 
 // This function is to retrive the competency detail information
-func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName string, curriculumVersion int) (*Course, string, string, bool, bool, error) {
+func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName string, curriculumVersion int) (*Course, string, string, bool, bool, []CourseSchedule, error) {
 	u, err := url.Parse(c.BaseURL + "/competency/detail")
 	if err != nil {
-		return nil, "", "", false, false, fmt.Errorf("failed to parse URL: %w", err)
+		return nil, "", "", false, false, nil, fmt.Errorf("failed to parse URL: %w", err)
 	}
 
 	q := u.Query()
@@ -417,19 +417,26 @@ func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName str
 
 	finalURL := strings.ReplaceAll(u.String(), "+", "%20")
 
-	// The struct that catches the dates
+	// The struct that catches the dates and schedule slots.
+	// Schedule fields (weekday, first_week, last_week, start_time, end_time)
+	// are flat inside semester_detail per the actual API response.
 	type competencyDetailResponse struct {
-		ID             string  `json:"id"`
-		TemplateID     string  `json:"template_id"`
-		Code           string  `json:"competency_code"`
-		Title          string  `json:"title"`
-		Description    string  `json:"description"`
-		Credits        float64 `json:"credits"`
-		Required       bool    `json:"required"`
+		ID          string  `json:"id"`
+		TemplateID  string  `json:"template_id"`
+		Code        string  `json:"competency_code"`
+		Title       string  `json:"title"`
+		Description string  `json:"description"`
+		Credits     float64 `json:"credits"`
+		Required    bool    `json:"required"`
 		SemesterDetail struct {
 			StartDate      string `json:"start_date"`
 			EndDate        string `json:"end_date"`
 			AssessmentOnly bool   `json:"assessment_only"`
+			Weekday        string `json:"weekday"`
+			FirstWeek      int    `json:"first_week"`
+			LastWeek       int    `json:"last_week"`
+			StartTime      string `json:"start_time"`
+			EndTime        string `json:"end_time"`
 		} `json:"semester_detail"`
 	}
 
@@ -437,12 +444,29 @@ func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName str
 		Competency competencyDetailResponse `json:"competency"`
 	}
 
-	// This makes finalURL and response "used" so Go stops yelling
 	if err := c.makeRequest("GET", finalURL, &response); err != nil {
-		return nil, "", "", false, false, fmt.Errorf("failed to get competency detail: %w", err)
+		return nil, "", "", false, false, nil, fmt.Errorf("failed to get competency detail: %w", err)
 	}
 
 	ac := response.Competency
+
+	// Build a single-slot schedule from the flat semester_detail fields.
+	var schedule []CourseSchedule
+	if ac.SemesterDetail.Weekday != "" {
+		schedule = []CourseSchedule{{
+			Day:       ac.SemesterDetail.Weekday,
+			StartTime: ac.SemesterDetail.StartTime,
+			EndTime:   ac.SemesterDetail.EndTime,
+			StartWeek: ac.SemesterDetail.FirstWeek,
+			EndWeek:   ac.SemesterDetail.LastWeek,
+		}}
+		fmt.Printf("[SCHEDULE] %s — %s weeks %d-%d %s-%s\n",
+			ac.Code, ac.SemesterDetail.Weekday,
+			ac.SemesterDetail.FirstWeek, ac.SemesterDetail.LastWeek,
+			ac.SemesterDetail.StartTime, ac.SemesterDetail.EndTime)
+	} else {
+		fmt.Printf("[SCHEDULE] %s — no schedule data\n", ac.Code)
+	}
 
 	finalID := ac.ID
 	if finalID == "" {
@@ -463,7 +487,7 @@ func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName str
 		CreditHours: ac.Credits,
 	}
 
-	return course, ac.SemesterDetail.StartDate, ac.SemesterDetail.EndDate, ac.SemesterDetail.AssessmentOnly, ac.Required, nil
+	return course, ac.SemesterDetail.StartDate, ac.SemesterDetail.EndDate, ac.SemesterDetail.AssessmentOnly, ac.Required, schedule, nil
 }
 
 // This function executes an HTTP request to the M2M API with token validation, and response handling.
