@@ -296,8 +296,11 @@ func OptimizeCourseSets(
 			isExplorePassions := strings.Contains(strings.ToUpper(currentTheme), "EXPLORE PASSIONS")
 
 			// --- THE DR. SALLY QUOTA RULE (THE BOUNCER) ---
-			// If "Explore Passions" is selected, the Bouncer stands down and lets electives through!
-			if !isReq && requiredCount < 4 && !isExplorePassions {
+			// Non-explore_passions: hold back electives until 4 required courses are in.
+			// Explore_passions: no minimum required count, but electives are STILL waitlisted
+			// so required courses always fill the credit budget first. This prevents high-scoring
+			// electives from squeezing out required courses when max credits is low.
+			if !isReq && (requiredCount < 4 || isExplorePassions) {
 				waitlistedElectives = append(waitlistedElectives, i)
 				continue
 			}

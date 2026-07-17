@@ -34,7 +34,8 @@ type StudentProfile struct {
 	CurriculumVersion    int                   `json:"curriculum_version"`
 	Competencies         map[string]float64    `json:"competencies"`
 	CourseSemesters      map[string]string     `json:"course_semesters"`
-	CompletedCourses     []string              `json:"completed_courses"`
+	CompletedCourses     []string              `json:"completed_courses"`  // Recorded + Completed (for exclusion)
+	RecordedCourses      []string              `json:"recorded_courses"`   // Recorded only (for prerequisite checking)
 	DistributionCredits  map[string]A1CECredit `json:"distribution_credits"`
 	RequiredCompetencies []string              `json:"required_competencies"`
 	TotalCredits         A1CECredit            `json:"total_credits"`
@@ -389,7 +390,12 @@ type CompetencyDetailResponse struct {
 		SemesterDetail struct {
 			StartDate      string `json:"start_date"`
 			EndDate        string `json:"end_date"`
-			AssessmentOnly bool   `json:"assessment_only"` // <--- NEW: Grabs the assessment filter
+			AssessmentOnly bool   `json:"assessment_only"`
+			Weekday        string `json:"weekday"`
+			FirstWeek      int    `json:"first_week"`
+			LastWeek       int    `json:"last_week"`
+			StartTime      string `json:"start_time"`
+			EndTime        string `json:"end_time"`
 		} `json:"semester_detail"`
 	} `json:"competency"`
 }

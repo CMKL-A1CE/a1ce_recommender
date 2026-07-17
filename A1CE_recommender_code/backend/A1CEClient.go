@@ -14,6 +14,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// CachedDetail holds the result of one getCompetencyDetail call so the optimizer
+// can read from memory instead of making HTTP calls during packaging.
+type CachedDetail struct {
+	StartDate      string
+	EndDate        string
+	IsAssessmentOnly bool
+	IsRequired     bool
+	Schedule       []CourseSchedule
+}
+
 type A1CEClient struct {
 	BaseURL          string
 	HTTPClient       *http.Client
@@ -21,6 +31,7 @@ type A1CEClient struct {
 	TokenExpiresAt   time.Time
 	UniversityCode   string
 	CourseIdentities map[string]string
+	DetailCache      map[string]CachedDetail // pre-populated before optimizer runs
 }
 type Identity struct {
 	Id   string `json:"id"`
@@ -167,9 +178,17 @@ func (c *A1CEClient) GetStudentProfile(studentID string) (*StudentProfile, error
 				profile.CourseSemesters[card.CourseCode] = card.Semester
 			}
 			if card.Status == "Recorded" || card.Status == "Completed" || card.Grade >= 1.0 {
+				// CompletedCourses includes both statuses — used to exclude courses from being recommended again.
 				profile.CompletedCourses = append(profile.CompletedCourses, card.CourseCode)
 				if card.TemplateID != "" {
 					profile.CompletedCourses = append(profile.CompletedCourses, card.TemplateID)
+				}
+			}
+			if card.Status == "Recorded" {
+				// RecordedCourses is strictly Recorded — used for prerequisite satisfaction checks.
+				profile.RecordedCourses = append(profile.RecordedCourses, card.CourseCode)
+				if card.TemplateID != "" {
+					profile.RecordedCourses = append(profile.RecordedCourses, card.TemplateID)
 				}
 			}
 		}
@@ -403,6 +422,13 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 
 // This function is to retrive the competency detail information
 func (c *A1CEClient) getCompetencyDetail(competencyCode string, semesterName string, curriculumVersion int) (*Course, string, string, bool, bool, []CourseSchedule, error) {
+	// Serve from cache if pre-populated — avoids HTTP calls during optimizer packaging.
+	if c.DetailCache != nil {
+		if cached, ok := c.DetailCache[competencyCode]; ok {
+			return nil, cached.StartDate, cached.EndDate, cached.IsAssessmentOnly, cached.IsRequired, cached.Schedule, nil
+		}
+	}
+
 	u, err := url.Parse(c.BaseURL + "/competency/detail")
 	if err != nil {
 		return nil, "", "", false, false, nil, fmt.Errorf("failed to parse URL: %w", err)

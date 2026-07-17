@@ -132,7 +132,7 @@ func main() {
 		Addr:         ":8080",
 		Handler:      handler,
 		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
@@ -440,12 +440,14 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prereqCache := make(map[string][]CompetencyPrerequisiteInfo)
+	a1ceClient.DetailCache = make(map[string]CachedDetail)
 	{
 		type fetchResult struct {
 			code    string
 			prereqs []CompetencyPrerequisiteInfo
+			detail  CachedDetail
 		}
-		sem := make(chan struct{}, 10) // cap at 10 concurrent API calls
+		sem := make(chan struct{}, 10)
 		var wg sync.WaitGroup
 		results := make(chan fetchResult, len(catalog.Courses))
 
@@ -460,20 +462,18 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			go func(code string) {
 				defer wg.Done()
 				sem <- struct{}{}
-				prereqs := fetchPrerequisites(prereqBaseURL, code, req.Semester, a1ceClient.JWTToken, prereqLookupVersion)
+				prereqs, detail := fetchPrerequisites(prereqBaseURL, code, req.Semester, a1ceClient.JWTToken, prereqLookupVersion)
 				<-sem
-				results <- fetchResult{code: code, prereqs: prereqs}
+				results <- fetchResult{code: code, prereqs: prereqs, detail: detail}
 			}(c.CourseCode)
 		}
 
-		// Close results channel once all goroutines finish
-		go func() {
-			wg.Wait()
-			close(results)
-		}()
+		go func() { wg.Wait(); close(results) }()
 		for r := range results {
 			prereqCache[r.code] = r.prereqs
+			a1ceClient.DetailCache[r.code] = r.detail
 		}
+		fmt.Printf("[DETAIL-CACHE] Pre-fetched details for %d candidate courses\n", len(a1ceClient.DetailCache))
 	}
 
 	// --- PREREQUISITE DEBUG LOG ---
@@ -1078,9 +1078,9 @@ func CheckPrerequisites(course Course, profile *StudentProfile) bool {
 		return true
 	}
 
-	// Create a fast-lookup map of everything the student has completed, stripped of formatting
+	// Only Recorded courses satisfy prerequisites (boss's simple strategy).
 	completedClean := make(map[string]bool)
-	for _, comp := range profile.CompletedCourses {
+	for _, comp := range profile.RecordedCourses {
 		cleanComp := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(comp, "-", ""), " ", ""))
 		completedClean[cleanComp] = true
 	}
@@ -1100,10 +1100,12 @@ func CheckPrerequisites(course Course, profile *StudentProfile) bool {
 	return true
 }
 
-// --- HELPER: Fetch Prerequisites ---
-func fetchPrerequisites(baseURL string, code string, semester string, token string, currVer int) []CompetencyPrerequisiteInfo {
+// --- HELPER: Fetch Prerequisites + Detail in one call ---
+// Returns the prerequisites and a CachedDetail (schedule, dates, flags) from a single
+// /competency/detail request so the caller can populate both caches at once.
+func fetchPrerequisites(baseURL string, code string, semester string, token string, currVer int) ([]CompetencyPrerequisiteInfo, CachedDetail) {
 	if baseURL == "" {
-		return nil
+		return nil, CachedDetail{}
 	}
 
 	encodedSemester := url.QueryEscape(semester)
@@ -1111,28 +1113,50 @@ func fetchPrerequisites(baseURL string, code string, semester string, token stri
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		return nil
+		return nil, CachedDetail{}
 	}
 
-	// --- THE SECURITY HEADER FIX ---
 	req.Header.Set("Cookie", "jwt="+strings.TrimSpace(token))
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/122.0 Safari/537.36")
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Connection", "keep-alive")
-	// -------------------------------
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		fmt.Printf("(!) WARNING: Prerequisite fetch failed for %s. Status: %d\n", code, resp.StatusCode)
-		return nil
+		return nil, CachedDetail{}
 	}
 	defer resp.Body.Close()
 
 	var detail CompetencyDetailResponse
 	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
-		return nil
+		return nil, CachedDetail{}
 	}
 
-	return detail.Competency.Prerequisites
+	sd := detail.Competency.SemesterDetail
+	var schedule []CourseSchedule
+	if sd.Weekday != "" {
+		schedule = []CourseSchedule{{
+			Day:       sd.Weekday,
+			StartTime: sd.StartTime,
+			EndTime:   sd.EndTime,
+			StartWeek: sd.FirstWeek,
+			EndWeek:   sd.LastWeek,
+		}}
+		fmt.Printf("[SCHEDULE] %s — %s weeks %d-%d %s-%s\n",
+			code, sd.Weekday, sd.FirstWeek, sd.LastWeek, sd.StartTime, sd.EndTime)
+	} else {
+		fmt.Printf("[SCHEDULE] %s — no schedule data\n", code)
+	}
+
+	cached := CachedDetail{
+		StartDate:        sd.StartDate,
+		EndDate:          sd.EndDate,
+		IsAssessmentOnly: sd.AssessmentOnly,
+		IsRequired:       detail.Competency.Required,
+		Schedule:         schedule,
+	}
+
+	return detail.Competency.Prerequisites, cached
 }
