@@ -534,7 +534,7 @@ func OptimizeCourseSets(
 					CompetencyCode:       c.Course.CourseCode,
 					Credits:              int(c.Course.CreditHours),
 					SubdomainTitle:       c.Course.SubdomainID,
-					FitScore:             courseSpecificScore,
+					FitScore:             math.Round(courseSpecificScore*100) / 100,
 					Reason:               dynamicReason,
 					Graphics:             pillarGraphics,
 					StartDate:            data.startDate,
