@@ -4,48 +4,53 @@ import (
 	"math"
 )
 
-// CalculateCompetencyMatchScore measures how well student's competencies match course
+// CalculateCompetencyMatchScore measures how well the student's competencies match a course.
+// It reads course.Prerequisites (the real prerequisite list fetched from the M2M API) and
+// profile.Competencies (the student's actual recorded grades) — course.RequiredCompetencies
+// is never populated by the A1CE client, so it can't be used as a scoring input.
 func CalculateCompetencyMatchScore(course Course, profile *StudentProfile) float64 {
-	requiredComps := getMapKeys(course.RequiredCompetencies)
-	studentComps := getMapKeys(profile.Competencies)
-	taughtComps := course.TeachesCompetencies
+	prereqCodes := make([]string, 0, len(course.Prerequisites))
+	for _, p := range course.Prerequisites {
+		prereqCodes = append(prereqCodes, normalizeCode(p.PrerequisiteCompetencyCode))
+	}
 
-	// Matched: Student has these required competencies
-	matched := intersection(requiredComps, studentComps)
-	// New skills: Course teaches competencies student doesn't have
-	newSkills := difference(taughtComps, studentComps)
+	studentGrades := make(map[string]float64, len(profile.Competencies))
+	for code, grade := range profile.Competencies {
+		studentGrades[normalizeCode(code)] = grade
+	}
+
+	// Matched: prerequisites the student has an on-record grade for
+	var matched []string
+	for _, comp := range prereqCodes {
+		if _, ok := studentGrades[comp]; ok {
+			matched = append(matched, comp)
+		}
+	}
 
 	// Calculate prerequisite satisfaction rate
 	prereqSatisfaction := 1.0
-	if len(requiredComps) > 0 {
-		prereqSatisfaction = float64(len(matched)) / float64(len(requiredComps))
+	if len(prereqCodes) > 0 {
+		prereqSatisfaction = float64(len(matched)) / float64(len(prereqCodes))
 	}
 
-	// Calculate skill gap filling rate
-	skillGapFill := 0.0
-	if len(taughtComps) > 0 {
-		skillGapFill = float64(len(newSkills)) / float64(len(taughtComps))
-	}
-
-	// Grade-level matching
-	gradeMatchScore := 0.0
+	// Grade-level matching: how strong were the student's grades in this course's
+	// prerequisites? Grades are on a 0-4 scale. Courses with no prerequisites (e.g.
+	// intro electives) get a neutral 0.5 instead of a free pass or an unfair penalty.
+	gradeMatchScore := 0.5
 	if len(matched) > 0 {
+		sum := 0.0
 		for _, comp := range matched {
-			requiredGrade := course.RequiredCompetencies[comp]
-			studentGrade := profile.Competencies[comp]
-			if studentGrade >= requiredGrade {
-				gradeMatchScore += 1.0
-			} else {
-				gradeMatchScore += studentGrade / requiredGrade
+			g := studentGrades[comp] / 4.0
+			if g > 1.0 {
+				g = 1.0
 			}
+			sum += g
 		}
-		gradeMatchScore /= float64(len(matched))
-	} else {
-		gradeMatchScore = 1.0
+		gradeMatchScore = sum / float64(len(matched))
 	}
 
 	// Weighted combination
-	return 0.4*prereqSatisfaction + 0.3*gradeMatchScore + 0.3*skillGapFill
+	return 0.5*prereqSatisfaction + 0.5*gradeMatchScore
 }
 
 // CalculateInterestScore measures alignment with student's interests
@@ -72,8 +77,10 @@ func CalculateProgramProgressScore(
 	requirements *CurriculumRequirements,
 ) float64 {
 	// Component 1: Required Competency Satisfaction
-	missingRequired := difference(requirements.RequiredCompetencies, getMapKeys(profile.Competencies))
-	taughtByCourse := course.TeachesCompetencies
+	// Codes are normalized before comparing since the A1CE API is inconsistent about
+	// spacing/casing in competency codes across endpoints.
+	missingRequired := normalizeSlice(difference(requirements.RequiredCompetencies, getMapKeys(profile.Competencies)))
+	taughtByCourse := normalizeSlice(course.TeachesCompetencies)
 	requiredTaught := intersection(missingRequired, taughtByCourse)
 
 	requiredCompScore := 0.0
@@ -203,6 +210,15 @@ func getMapKeys(m map[string]float64) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// normalizeSlice applies normalizeCode (defined in main.go) to every element of a slice.
+func normalizeSlice(s []string) []string {
+	out := make([]string, len(s))
+	for i, v := range s {
+		out[i] = normalizeCode(v)
+	}
+	return out
 }
 
 // difference returns elements in 'a' that are not in 'b'

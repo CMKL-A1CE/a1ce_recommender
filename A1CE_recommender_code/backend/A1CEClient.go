@@ -413,8 +413,11 @@ func (c *A1CEClient) getCoursesForSubdomain(subdomainID, semester string, curric
 			IsCore:               isCore,
 			IsRequired:           ac.IsRequired,
 			RequiredCompetencies: make(map[string]float64),
-			TeachesCompetencies:  []string{},
-			Prerequisites:        []CompetencyPrerequisiteInfo{},
+			// A competency course "teaches" itself — this lets ProgramProgressScore
+			// detect whether a specific candidate fulfills one of the student's
+			// outstanding required competencies (see CalculateProgramProgressScore).
+			TeachesCompetencies: []string{ac.Code},
+			Prerequisites:       []CompetencyPrerequisiteInfo{},
 		})
 	}
 	return courses, nil
