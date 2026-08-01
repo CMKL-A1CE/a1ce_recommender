@@ -676,6 +676,39 @@ func handleRecommendations(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// 3b. CUSTOM WEIGHTS: The base formula (compW*score + intW*score + progW*score) produces
+		// values in [0,1] which are too correlated across courses to reorder rankings even with
+		// extreme weights like (1,0,0) vs (0,0,1). Apply proportional behavioral boosts — the
+		// same signals used by the preset types — scaled to each custom weight so the dominant
+		// dimension creates visible separation.
+		if req.WeightType == "custom" {
+			// High compW: favor pillars where student has already succeeded (mirrors play_it_safe)
+			if compW > 0 && len(successfulCourses) > 0 {
+				candidatePrefix, _ := parseCourseCode(course.CourseCode)
+				for _, success := range successfulCourses {
+					successPrefix, _ := parseCourseCode(success)
+					if candidatePrefix == successPrefix && candidatePrefix != "" {
+						fitScore += compW * 5.0
+						break
+					}
+				}
+			}
+			// High progW: favor required courses and high-credit courses (mirrors fast_track)
+			if progW > 0 {
+				fitScore += progW * course.CreditHours * 0.3
+				if isCurriculumReq[normalizeCode(course.CourseCode)] ||
+					(course.TemplateID != "" && isCurriculumReq[normalizeCode(course.TemplateID)]) {
+					fitScore += progW * 3.0
+				}
+			}
+			// High intW: favor courses in the student's strongest interest subdomains
+			if intW > 0 {
+				if weight, exists := profile.InterestWeights[course.SubdomainID]; exists && weight > 0.1 {
+					fitScore += intW * 5.0
+				}
+			}
+		}
+
 		// 3. THEME PILLAR BOOST: Boost courses whose code prefix belongs to the chosen theme.
 		// Base boost is +50. explore_passions doubles it to +100 so the student's chosen
 		// theme dominates even when their course history points elsewhere.
